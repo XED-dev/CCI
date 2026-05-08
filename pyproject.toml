@@ -1,0 +1,80 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "xed-cci"
+dynamic = ["version"]
+description = "cBOX@ /Container Inventur — Read-Only-Tool für lokale Box-Inventur (OS, CC-Suite, Stack, Datenbanken, Server-Apps). Drittes Mitglied der XED /CC-Suite neben ccc + cca. cBOX.at/YOU by XED.dev Tools via Collective Context (CC)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Collective Context", email = "code@collective-context.org" },
+]
+keywords = [
+    "lxc",
+    "proxmox",
+    "container",
+    "inventory",
+    "read-only",
+    "cli",
+    "cci",
+    "cbox",
+    "debian",
+    "ubuntu",
+    "monitoring",
+    "kaizen",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+cci = "cci.cli:main"
+
+[project.urls]
+Homepage       = "https://cci.xed.dev"
+Repository     = "https://github.com/XED-dev/CCI"
+"XED /Suite"   = "https://xed.dev"
+Issues         = "https://github.com/XED-dev/CCI/issues"
+Changelog      = "https://github.com/XED-dev/CCI/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/cci/_version.py"
+pattern = '__version__ = "(?P<version>[^"]+)"'
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cci"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/cci",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+]

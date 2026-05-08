@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XED /CCI — cBOX@ /Container Inventur</title>
+<meta name="description" content="Read-Only-Tool für lokale cBOX-Inventur (OS, CC-Suite, Stack, Datenbanken, Server-Apps). Drittes Mitglied der XED /CC-Suite. MIT-lizenziert.">
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --muted: #555;
+    --accent: #0066cc;
+    --bg: #fafafa;
+    --code-bg: #f0f0f0;
+    --border: #ddd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e8e8;
+      --muted: #999;
+      --accent: #6ab0ff;
+      --bg: #1a1a1a;
+      --code-bg: #2a2a2a;
+      --border: #444;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 { font-size: 2rem; margin: 0 0 0.25rem; }
+  h1 small { font-weight: normal; color: var(--muted); font-size: 1rem; display: block; margin-top: 0.25rem; }
+  h2 { margin-top: 2.5rem; font-size: 1.3rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h3 { margin-top: 1.5rem; font-size: 1.05rem; }
+  p, li { color: var(--fg); }
+  code {
+    background: var(--code-bg);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    font-size: 0.92em;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  pre {
+    background: var(--code-bg);
+    padding: 0.85rem 1rem;
+    border-radius: 5px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+  }
+  pre code { background: none; padding: 0; }
+  a { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; }
+  th { background: var(--code-bg); }
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+  }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>XED /CCI
+  <small>cBOX@ /Container Inventur · Read-Only-Tool für lokale cBOX-Inventur</small>
+</h1>
+
+<p>
+  <span class="badge"><code>firstboot.sh</code> v0.0.1</span>
+  <span class="badge"><code>cci</code> v0.0.1</span>
+  <span class="badge">MIT</span>
+  <span class="badge"><a href="https://github.com/XED-dev/CCI">GitHub</a></span>
+  <span class="badge"><a href="https://pypi.org/project/xed-cci/">PyPI</a></span>
+</p>
+
+<p>
+  <strong>100% Read-Only:</strong> <code>cci</code> verändert NIEMALS den Box-Zustand.
+  Strukturelle Garantie via subprocess-Whitelist (<code>ReadOnlyViolationError</code>
+  bei nicht-whitelisted Aufruf).
+</p>
+
+<h2>Schnellstart</h2>
+
+<p>In jeder frischen Debian/Ubuntu-LXC-Box als root:</p>
+
+<pre><code><span style="color:var(--muted)"># Pre-Step (minimal-LXC-Templates haben kein curl vorinstalliert):</span>
+apt update &amp;&amp; apt install -y curl ca-certificates
+
+<span style="color:var(--muted)"># firstboot.sh ausführen (installiert pipx + xed-cci):</span>
+bash &lt;(curl -s https://cci.xed.dev/firstboot.sh)
+
+<span style="color:var(--muted)"># Inventur ausführen:</span>
+cci inventory                  <span style="color:var(--muted)"># Rich-Tabellen für Mensch</span>
+cci inventory --format json    <span style="color:var(--muted)"># JSON für AI-Agent</span></code></pre>
+
+<p>Manuell (wenn pipx schon vorhanden):</p>
+
+<pre><code>pipx install xed-cci</code></pre>
+
+<h2>Was <code>cci inventory</code> liefert</h2>
+
+<table>
+  <thead>
+    <tr><th>Sektion</th><th>Quelle</th><th>Inhalt</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>os</code></td><td><code>/etc/os-release</code> + <code>os.uname()</code></td><td>id, version_id, pretty_name, kernel</td></tr>
+    <tr><td><code>cc-suite</code></td><td><code>pipx list --json</code></td><td>xed-ccc / xed-cca / xed-cci-Versionen</td></tr>
+    <tr><td><code>stack</code></td><td><code>sys.version_info</code> + <code>shutil.which</code></td><td>python3 (immer) + php / node (Optional)</td></tr>
+    <tr><td><code>databases</code></td><td><code>dpkg-query</code> + <code>systemctl is-active</code></td><td>mysql / mariadb / postgresql + Service-Status</td></tr>
+    <tr><td><code>apps</code></td><td><code>Path.glob</code> unter <code>/var/www/</code></td><td>Server-Apps mit Versionen (v0.0.1: Typo3-Detection)</td></tr>
+  </tbody>
+</table>
+
+<h2>Verben</h2>
+
+<pre><code>cci inventory                       <span style="color:var(--muted)"># Komplette Inventur (Rich-Tabelle)</span>
+cci inventory --format json         <span style="color:var(--muted)"># JSON für AI-Agent-Konsumtion</span>
+cci inventory --section os          <span style="color:var(--muted)"># Nur OS-Sektion</span>
+cci inventory --section cc-suite    <span style="color:var(--muted)"># Nur CC-Suite-Versionen</span>
+cci inventory --section stack       <span style="color:var(--muted)"># Nur Programmier-Stacks</span>
+cci inventory --section databases   <span style="color:var(--muted)"># Nur Datenbank-Engines</span>
+cci inventory --section apps        <span style="color:var(--muted)"># Nur Server-Apps</span>
+cci --help                          <span style="color:var(--muted)"># Verb-Übersicht</span>
+cci --version                       <span style="color:var(--muted)"># Tool-Version</span></code></pre>
+
+<h2>Use-Case: AI-Agent-Konsultation</h2>
+
+<pre><code>cci inventory --format json &gt; /tmp/box.json
+
+<span style="color:var(--muted)"># Dann an AI-Agent (Claude Code, ChatGPT, etc.):</span>
+<span style="color:var(--muted)"># &quot;Hier ist meine Box-Inventur. Passt diese Konfiguration für Typo3 v13?</span>
+<span style="color:var(--muted)">#  Welche Anpassungen sind nötig?&quot;</span></code></pre>
+
+<p>
+  Der AI-Agent sieht in einem strukturierten JSON-Block alle relevanten
+  Box-Daten und kann fundierte Migrations-/Update-Empfehlungen geben —
+  <strong>ohne dass DevOps die Daten manuell zusammensuchen muss</strong>.
+</p>
+
+<h2>Drei-Phasen-Plan</h2>
+
+<table>
+  <thead>
+    <tr><th>Phase</th><th>Inhalt</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>1</strong></td><td>Python-CLI Read-Only (<code>cci inventory</code>-Verb mit Rich + JSON)</td><td><strong>v0.0.1 live</strong></td></tr>
+    <tr><td>2</td><td>DeltaChat-Bot-Daemon (dezentrale Box-Steuerung ohne Ports/TLS)</td><td>Vision (geplant)</td></tr>
+    <tr><td>3</td><td>cBOX@ /Monitor (Master-Programm für 1000+ Boxen)</td><td>Vision (geplant)</td></tr>
+  </tbody>
+</table>
+
+<p>
+  Volle Architektur-Entscheidungsfindung + Vision/Mission siehe
+  <a href="https://github.com/XED-dev/CCI/blob/main/README.md">README</a>
+  und das Whitepaper im fb-data-Workspace-Repo.
+</p>
+
+<h2>Designprinzipien</h2>
+
+<ul>
+  <li><strong>100% Read-Only</strong> — strukturelle Garantie via subprocess-Whitelist + Lakmus-Test pro Helper</li>
+  <li><strong>Stack-Konsistenz</strong> mit ccc + cca — Python + Typer + Rich + pytest + pipx</li>
+  <li><strong>Stdlib-Idiomatik bevorzugt</strong> — <code>platform.freedesktop_os_release</code>, <code>os.uname</code>, <code>sys.version_info</code>, <code>pathlib.Path</code> wo möglich</li>
+  <li><strong>JSON-Schema-Versionierung</strong> — Backward-Compat-Disziplin für AI-Agent-Konsumenten</li>
+  <li><strong>AI-Agent-pflegbar</strong> — Python-Stack, ausgereifte Libraries, einheitliche Disziplinen</li>
+</ul>
+
+<footer>
+  cBOX.at/YOU by <a href="https://xed.dev">XED.dev Tools</a> via
+  <a href="https://collective-context.org">Collective Context (CC)</a> —
+  MIT-Lizenziert. Teil der <a href="https://github.com/XED-dev">XED-Tools-Familie</a>
+  (TUI · Edit · Studio · XP · Restore · CCC · CCA · CCI).
+</footer>
+
+</body>
+</html>
