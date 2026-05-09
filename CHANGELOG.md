@@ -5,7 +5,7 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
-## [0.0.1] — UNRELEASED
+## [0.0.1] — 2026-05-08
 
 ### Hinzugefügt (CCI-SS1 — Skelett-Setup)
 
