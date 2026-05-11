@@ -3,13 +3,13 @@
 Composition über die fünf Inventur-Sektionen (os/cc-suite/stack/databases/
 apps). Output entweder Rich-Tabelle (Mensch) oder JSON (AI-Agent-Konsumtion).
 
-Senior-Pre-Hints H6-H11 (AI039 SS5 2026-05-08):
-- H6: InventoryReport TypedDict matcht WHITEPAPER §JSON-Schema 1:1
-- H7: Rich für Mensch / json.dumps für AI-Agent
-- H8: --section-Filter mit enum-Choices (os/cc-suite/stack/databases/apps/all)
-- H9: datetime.now(timezone.utc).isoformat — KEIN deprecated utcnow()
-- H10: socket.gethostname() — KEIN subprocess hostname
-- H11: _SCHEMA_VERSION als Konstante (Single-Source-of-Truth)
+Pattern-Anker für Composition:
+- InventoryReport TypedDict matcht WHITEPAPER §JSON-Schema 1:1
+- Rich für Mensch / json.dumps für AI-Agent
+- --section-Filter mit enum-Choices (os/cc-suite/stack/databases/apps/all)
+- datetime.now(timezone.utc).isoformat — KEIN deprecated utcnow()
+- socket.gethostname() — KEIN subprocess hostname
+- _SCHEMA_VERSION als Konstante (Single-Source-of-Truth)
 
 Stdlib-Reflex maximiert: keine subprocess-Aufrufe in dieser Datei
 (Composition + Output-Rendering nur).
@@ -204,9 +204,8 @@ def inventory_command(
     fmt = output_format.lower()
     if fmt == "json":
         # JSON-Output via stdout, Rich-Console-Output deaktiviert um
-        # Format-Kontamination zu vermeiden (Senior-Pre-Hint H7/H8 STOPP-
-        # Kriterium: bei --format json darf KEIN Rich-Output dazwischen
-        # rutschen).
+        # Format-Kontamination zu vermeiden: bei --format json darf KEIN
+        # Rich-Output dazwischen rutschen.
         filtered = _filter_report(report, section)
         print(json.dumps(filtered, indent=2))
         return

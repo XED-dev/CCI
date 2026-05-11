@@ -1,6 +1,6 @@
 """stack — Programmier-Stack-Versionen (python3 + php + node).
 
-Senior-Pre-Hint H2 (AI039 SS3.3 2026-05-08):
+Pattern-Anker:
 - python3 ist DER LAUFENDE INTERPRETER. `sys.version_info` ist
   authoritativ + Stdlib-only — KEIN subprocess für python3-Version.
 - php/node sind external — `shutil.which()` Detection-only-wenn-installiert,

@@ -4,10 +4,9 @@ Strukturell read-only via Stdlib (`platform.freedesktop_os_release` +
 `os.uname`). Kein subprocess nötig — strukturell noch sicherer als
 Whitelist-validated subprocess.
 
-Senior-Pattern-Anker (AI039 SS3.1 2026-05-08):
-„Stdlib-Idiomatik als ersten Check" — bevor `safe_run`-subprocess
-gewählt wird, prüfen ob Python-Stdlib bereits eine purpose-built
-Funktion hat. Hier:
+Pattern-Anker: „Stdlib-Idiomatik als ersten Check" — bevor
+`safe_run`-subprocess gewählt wird, prüfen ob Python-Stdlib bereits
+eine purpose-built Funktion hat. Hier:
 
 - `platform.freedesktop_os_release()` (Python 3.10+ stdlib) für
   /etc/os-release-Parsing — KEIN manuelles KEY=VALUE-Parsing

@@ -1,8 +1,8 @@
 """cc_suite — XED /CC-Suite-Versionen via pipx list --json.
 
 Sammelt installed Versionen von xed-ccc / xed-cca / xed-cci aus pipx
-Maschinen-parse-Form (`pipx list --json`). Senior-Pre-Hint H1 (AI039
-SS3.2 2026-05-08): JSON-Output > Plain-Text-Regex-Parsing.
+Maschinen-parse-Form (`pipx list --json`). Pattern-Anker: JSON-Output
+> Plain-Text-Regex-Parsing für Maschinen-stabile Auswertung.
 
 Whitelist-Note: `pipx list` ist als Subkommando whitelisted (siehe
 safe_run.py). Args nach Subkommando (`--json`) sind frei für Read-Only-
@@ -48,12 +48,11 @@ def _detect_pipx_home() -> Optional[str]:
     Bei Non-pipx-venvs (dev uv-venv, system Python) returnt `None`
     (Caller nutzt env-default).
 
-    Senior-Schaerfung AI039 SS7-v0.0.2 2026-05-09: Bug-Fix für
-    PIPX_HOME-env-Drift. firstboot.sh installiert xed-cci system-wide
-    via `PIPX_HOME=/opt/pipx`, aber cci-runtime erbt parent-env ohne
-    explizites PIPX_HOME → pipx subprocess sucht in user-default
-    `~/.local/share/pipx/` und sieht xed-ccc/xed-cca/xed-cci nicht
-    → alle drei Versionen fielen auf `'unknown'`.
+    PIPX_HOME-env-Drift-Mitigation: firstboot.sh installiert xed-cci
+    system-wide via `PIPX_HOME=/opt/pipx`, aber cci-runtime erbt
+    parent-env ohne explizites PIPX_HOME → pipx subprocess sucht in
+    user-default `~/.local/share/pipx/` und sieht xed-ccc/xed-cca/xed-cci
+    nicht → alle drei Versionen fielen auf `'unknown'`.
 
     Detection ist robust gegen Symlinks: `sys.executable` ist der
     venv-Python-Pfad UNRESOLVED (PEP 405), Walk via `Path.parents`
@@ -69,7 +68,7 @@ def _detect_pipx_home() -> Optional[str]:
 def collect_cc_suite_info() -> CCSuiteInfo:
     """Sammle xed-ccc/xed-cca/xed-cci-Versionen aus `pipx list --json`.
 
-    Auto-detect PIPX_HOME (Senior-Schaerfung v0.0.2): wenn cci aus einer
+    Auto-detect PIPX_HOME: wenn cci aus einer
     pipx-Installation läuft, env-Override an pipx subprocess so dass
     pipx die selbe PIPX_HOME-Sicht hat wie firstboot.sh-install-time.
 

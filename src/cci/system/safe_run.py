@@ -22,9 +22,9 @@ from typing import Optional
 # None = jedes erste-Argument erlaubt (Befehl ist inhärent read-only)
 COMMAND_WHITELIST: dict[str, Optional[frozenset[str]]] = {
     # dpkg-query: purpose-built Read-Only-Tool (KEIN dpkg, weil dpkg
-    # general-purpose mit -i/-r/-P-Mutation-Surface ist — Senior-Schärfung
-    # AI039 SS2 2026-05-08: bei Read-Write- vs. Read-Only-Tool das
-    # Read-Only-Tool bevorzugen, auch wenn Whitelist beide „sicher" macht).
+    # general-purpose mit -i/-r/-P-Mutation-Surface ist). Pattern:
+    # bei Read-Write- vs. Read-Only-Tool das Read-Only-Tool bevorzugen,
+    # auch wenn Whitelist beide „sicher" macht.
     "dpkg-query": frozenset({
         "-l", "-W", "-s", "--list", "--show", "--status",
     }),
@@ -35,33 +35,30 @@ COMMAND_WHITELIST: dict[str, Optional[frozenset[str]]] = {
         "status", "is-active", "is-enabled", "is-failed",
         "cat", "show",
     }),
-    # KEIN apt/apt-cache (Senior-Schaerfung AI039 SS5-Boundary 2026-05-08:
-    # SS3.1-3.4 + SS4 + SS5 nutzen kein apt — Stdlib-Reflex hat dpkg-query
-    # statt apt list, Path.read_text statt cat etc. Wenn kuenftiger SS
-    # apt-Aufrufe braucht, mit konkreter Subkommando-Whitelist zurueckbringen.
+    # KEIN apt/apt-cache — Stdlib-Reflex hat dpkg-query statt apt list,
+    # Path.read_text statt cat etc. Wenn künftiger Use-Case apt-Aufrufe
+    # braucht, mit konkreter Subkommando-Whitelist zurückbringen.
     # Pattern-Anker: minimal-surface > nice-to-have-future.
     # pipx: nur list/--version/environment (KEIN install/upgrade/uninstall)
     "pipx": frozenset({
         "list", "--version", "-V", "environment", "--help", "-h",
     }),
     # php / node: nur Version-Detection (KEIN script-execution).
-    # Senior-Schaerfung AI039 SS3.3 2026-05-08: konkrete Subkommando-
-    # Whitelist (--version/-v), KEIN None-Fallback (defense-in-depth-
-    # Pattern aus SS2 find/dpkg-Lehre).
+    # Konkrete Subkommando-Whitelist (--version/-v), KEIN None-Fallback
+    # (defense-in-depth-Pattern aus find/dpkg-Lehre — minimal-surface
+    # > nice-to-have-future).
     "php": frozenset({"--version", "-v"}),
     "node": frozenset({"--version", "-v"}),
     # Inhärent Read-Only — alle Argumente erlaubt.
-    # KEIN cat (Senior-Schaerfung AI039 SS5-Boundary 2026-05-08: Path.read_text()
-    # ist Stdlib-Idiomatik in apps/typo3.py, cat-Eintrag obsolet seit SS4).
+    # KEIN cat — Path.read_text() ist Stdlib-Idiomatik in apps/typo3.py.
     "uname": None,
     "ls": None,
     "stat": None,
     "readlink": None,
-    # KEIN `find` als None-Fallback (Senior-Schärfung AI039 SS2 2026-05-08:
-    # find ist „loaded gun"-Risiko via -delete/-exec, Phase 1 nutzt find
-    # nicht. Wenn künftiger SS find braucht: mit konkreter Subkommando-
-    # Whitelist `{-type, -name, -path, -maxdepth}` zurückbringen, NICHT
-    # als None. Pattern-Anker: minimal-surface > nice-to-have-future).
+    # KEIN `find` als None-Fallback — find ist „loaded gun"-Risiko via
+    # -delete/-exec. Wenn künftiger Use-Case find braucht: mit konkreter
+    # Subkommando-Whitelist `{-type, -name, -path, -maxdepth}` zurückbringen,
+    # NICHT als None. Pattern-Anker: minimal-surface > nice-to-have-future.
 }
 
 

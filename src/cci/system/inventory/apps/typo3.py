@@ -1,6 +1,6 @@
 """typo3 — App-Detector für TYPO3-Installationen unter /var/www/.
 
-Stdlib-only via pathlib (Senior-Pre-Hint H3 AI039 SS4 2026-05-08):
+Stdlib-only via pathlib:
 - `Path.glob()` für Scan unter /var/www/ (KEIN subprocess find)
 - `Path.read_text()` für Konfig + Version-Files (KEIN subprocess cat)
 - `Path.exists()/is_dir()` für Detection
