@@ -1,5 +1,5 @@
 #!/bin/bash
-# firstboot.sh v0.0.1 — XED /CCI cBOX@ /Container Inventur Bootstrap
+# firstboot.sh v0.0.4 — XED /CCI cBOX@ /Container Inventur Bootstrap
 #
 # Quelle:    https://github.com/XED-dev/CCI
 # Aufruf:    bash <(curl -s https://cci.xed.dev/firstboot.sh)
@@ -22,7 +22,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # === Globals ===
 
-VERSION="0.0.1"
+VERSION="0.0.4"
 SCRIPT_NAME="firstboot.sh"
 FIRSTBOOT_LOG_FILE="/var/log/xed-cci.log"
 
@@ -113,16 +113,14 @@ install_cci() {
     export PIPX_HOME="$PIPX_HOME_DIR"
     export PIPX_BIN_DIR="$PIPX_BIN_DIR_PATH"
 
-    # upgrade-or-install statt --force (xed-ccc v0.2.1-Pattern aus SS6.5):
-    # pipx upgrade triggert pip install --upgrade-Resolver, --no-cache-dir
-    # bypasst lokalen pip-HTTP-Cache. Beides als defense-in-depth gegen
-    # Re-Run-Window-Phaenomen.
-    info "xed-cci via pipx (upgrade-or-install, no-cache-dir)..."
-    if pipx list --short 2>/dev/null | grep -q '^xed-cci '; then
-        pipx upgrade xed-cci --pip-args="--no-cache-dir"
-    else
-        pipx install xed-cci --pip-args="--no-cache-dir"
-    fi
+    # Bootstrap-Distribution-Pattern: pipx install --force statt
+    # upgrade-or-install-Detection. Support-Garantie ist Hard-Requirement
+    # (User-Intent "curl-Befehl = immer neueste Version") + pipx-version-
+    # unabhaengig (frueher Detection via 'pipx list --short' brach auf
+    # pipx 1.0.0 das kein --short-Flag hat). --no-cache-dir bypasst
+    # lokalen pip-HTTP-Cache als defense-in-depth.
+    info "xed-cci via pipx (install --force, no-cache-dir)..."
+    pipx install --force xed-cci --pip-args="--no-cache-dir"
     ok "xed-cci installiert via pipx"
 }
 

@@ -5,6 +5,42 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.0.4] — 2026-05-12
+
+### Fixed (firstboot.sh pipx-Upgrade-Pfad)
+
+- **`docs/firstboot.sh`: `bash <(curl)` installiert jetzt wirklich latest.**
+  Bisher prüfte `install_cci()` mit `pipx list --short 2>/dev/null | grep -q
+  '^xed-cci '` ob xed-cci installiert ist und wählte upgrade-or-install-Pfad.
+  Live-Use-Case auf Ubuntu 22.04 jammy (pipx 1.0.0 Default) zeigte: pipx 1.0.0
+  hat kein `--short`-Flag → command failt → stderr unterdrückt → grep returnt
+  False → else-Branch → `pipx install` → „already installed, no modification"
+  → kein Upgrade durchgeführt. Self-Healing-Pattern war strukturell verletzt
+  auf älteren pipx-Versionen.
+
+  **Fix:** 3-Zeilen-Refactor zu bedingungslosem `pipx install --force xed-cci
+  --pip-args="--no-cache-dir"`. Pipx-version-unabhängig + Support-tauglich +
+  Re-Install <1 Min toleriert per DevOps-Direktive.
+
+  Plus `firstboot.sh` VERSION-Konstante sync mit Tool-Version (0.0.1 → 0.0.4)
+  für klare Release-Korrelation.
+
+### Pattern-Anker
+
+Bootstrap-Distribution-Pattern für Tool-Updates: `pipx install --force` über
+Detection-Pattern. Support-Garantie ist Hard-Requirement — der User-Intent
+„curl-Befehl = immer neueste Version" + die Support-Verlässlichkeit
+„`bash <(curl)` installiert wirklich latest" wiegen mehr als Idempotenz-
+Eleganz + Performance-Optimierung. Detection-Pattern bleibt scharf für andere
+Use-Cases (Filesystem-Marker > CLI-Output-Parse), aber für Bootstrap-
+Distribution ist `--force` strukturell support-tauglich.
+
+Bidirektional-Lehre für AI-Agents: bei Memory-kanonischen Patterns IMMER
+Live-Use-Case-Verify einbauen — Self-Healing-Pattern ist nur theoretisch
+wirksam, faktische Wirksamkeit braucht pipx-Version-Compat-Verify.
+
+[0.0.4]: https://github.com/XED-dev/CCI/releases/tag/v0.0.4
+
 ## [0.0.3] — 2026-05-12
 
 ### Hinzugefügt (TYPO3 Composer-Mode-Detection)
