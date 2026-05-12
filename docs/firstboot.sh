@@ -213,8 +213,8 @@ verify_version_with_user_agency() {
         echo "  ┌─ Versions-Divergenz ──────────────────────────────────────┐"
         printf "  │ Installiert: v%-44s│\n" "${installed}"
         printf "  │ PyPI latest: v%-44s│\n" "${latest}"
-        echo "  │ Ursache: pipx < 1.3.0 fehlt automatic --force-reinstall.   │"
-        echo "  └────────────────────────────────────────────────────────────┘"
+        echo "  │ Ursache: pipx < 1.3.0 fehlt automatic --force-reinstall.  │"
+        echo "  └───────────────────────────────────────────────────────────┘"
         echo
         echo "  [Y] Auf v${latest} updaten  (Default — empfohlen)"
         echo "  [k] Bei v${installed} bleiben"
