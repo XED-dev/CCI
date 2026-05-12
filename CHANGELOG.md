@@ -5,6 +5,86 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.0.8] — 2026-05-13
+
+### Behoben + Hinzugefügt (Deployer-Layout + Output-Formate für SysOps-Praxis)
+
+- **`apps/typo3.py`: vier Composer-Mode-Sub-Layouts statt einem.**
+  v0.0.7 nutzte nur `*/composer.json`-Glob (Top-Level), das verfehlt
+  deployer.org-Style (composer.json in `<site>/current/`-Symlink) und
+  DevOps-Konvention `typo3/<site>/composer.json` auf WordOps-Boxen.
+  Live-Use-Case auf preprod.scheucherparkett.com zeigte `apps:[]`-Bug
+  obwohl TYPO3 v11.5.42 installiert war (deployer-Layout `current →
+  releases/65/composer.json`).
+
+  **Erweiterung:** `_COMPOSER_JSON_GLOBS`-Tuple mit vier Patterns:
+  ```
+  "*/composer.json"               # Top-Level Mainstream
+  "*/current/composer.json"       # Deployer-Style (atomic releases)
+  "typo3/*/composer.json"         # DevOps-typo3-base Layout
+  "typo3/*/current/composer.json" # typo3-base + Deployer
+  ```
+
+  Plus neuer Helper `_resolve_site_root(composer_json)` strippt die
+  „current/"-Komponente bei Deployer-Layout, damit `AppInfo.path` den
+  logischen Site-Root zeigt (statt flüchtigen `releases/<N>/`-Pfad).
+  `config_file`-Feld zeigt Sub-Pattern implizit (z.B. `"composer.json"`
+  bei Top-Level vs. `"current/composer.json"` bei Deployer).
+  Quellen autoritativ: [deployer.org TYPO3-Recipe](https://deployer.org/docs/7.x/recipe/typo3)
+  + DevOps' lokales Pattern aus typo3.update-Notes.
+
+- **`commands/inventory.py`: zwei neue Output-Formate für SysOps-Praxis.**
+  v0.0.7 hatte nur `rich` (Mensch-Tabellen) und `json` (AI-Agent).
+  Reale DevOps-Workflows brauchen aber auch:
+
+  - **`oneliner`** — Single-Line pipe-separated, copy-paste-friendly für
+    Chat-Sharing (z.B. Hoster-Kommunikation, Schnell-Diagnose-Snapshot).
+    Format: `schema:X|host:Y|os:Z|kernel:K|cc-suite:...|apps:...`
+  - **`text`** — Plain multi-line (INI-artig, kein Rich-Markup) für
+    File-Output + `cat`. Geeignet für SysOps-Doku + Run-Snapshots.
+
+- **`commands/inventory.py`: neues `--output FILE` (`-o`)-Flag.**
+  Schreibt Inventur in Datei statt stdout. Funktioniert mit allen
+  Formaten (rich/json/oneliner/text). Rich-Output via
+  `Console(file=fp, force_terminal=False, width=120)` für saubere
+  ASCII-Tabellen in Datei (kein ANSI-Color-Bleed).
+
+  **Beispiele:**
+  ```
+  cci inventory --format oneliner              # 1-Zeile copy-paste
+  cci inventory --format text -o /tmp/inv.txt  # In Datei schreiben
+  ```
+
+### Tests
+
+- 5 neue Cases in `test_typo3.py`:
+  - `_resolve_site_root` strippt `current/`-Komponente
+  - `_resolve_site_root` nimmt parent direkt
+  - Deployer-Layout-Detection (current → releases/N/composer.json)
+  - typo3-base-Layout-Detection (`/var/www/typo3/<site>/`)
+  - typo3-base + Deployer kombiniert
+- 63 → 68+ pytest grün erwartet.
+
+### Pattern-Anker
+
+Layout-Detection-Resilienz: ein Tool das nur EINE Layout-Pattern kennt
+ist auf realen WordOps-Boxen blind. Multi-Pattern-Glob mit Site-Root-
+Resolution ist defense-against-Drift. AI043's Live-Inspect auf osU2404
+hat die Wurzel klar gezeigt (Memory-Anker: Live-Use-Case > theoretisches
+Pattern, AI041-Schärfung 2026-05-12).
+
+Output-Format-Pluralität: SysOps + DevOps + AI-Agent + Chat-Sharing
+haben unterschiedliche Output-Bedürfnisse. Vier Formate (rich/json/
+oneliner/text) statt Format-Monopol. Plus `--output FILE` für
+File-Persistenz.
+
+DevOps-Direktive 2026-05-12 (β-Routing): EIN-Sprint mit P0-MVP-Subset
+(Deployer-Fix + Output-Formate) statt vier-Sprint-Plan. P1-Items
+(WordOps-Detection, nginx in Stack, PHP-Multi-Version, Solr-robust)
+bleiben Backlog für v0.0.9 oder spätere Session.
+
+[0.0.8]: https://github.com/XED-dev/CCI/releases/tag/v0.0.8
+
 ## [0.0.7] — 2026-05-12
 
 ### Hinzugefügt (Help-UX-Korrektur + θ-Platzhalter)

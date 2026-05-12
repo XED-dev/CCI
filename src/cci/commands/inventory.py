@@ -21,7 +21,8 @@ import json
 import socket
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TypedDict
+from pathlib import Path
+from typing import Optional, TypedDict
 
 import typer
 from rich.console import Console
@@ -176,6 +177,131 @@ def _render_apps(console: Console, apps: list[AppInfo]) -> None:
     console.print(table)
 
 
+def _render_oneliner(report: InventoryReport, section: Section) -> str:
+    """Pipe-separated One-Liner, copy-paste-friendly für Chat-Sharing.
+
+    Format: section1:items|section2:items|... mit Items per Section
+    Comma-separated. Header (schema/host/timestamp) immer drin für Kontext.
+
+    Beispiel-Output (alle Sektionen):
+        schema:0.0.1|host:osU2404|timestamp:...|os:Ubuntu-22.04.5-LTS|
+        kernel:5.4.203-1-pve|cc-suite:ccc-0.2.3,cca-0.0.5,cci-0.0.8|
+        stack:py-3.10.12,php-8.4.21|databases:mariadb-10.6.23(active)|
+        apps:typo3-13.4.1@/var/www/site/(composer.json,composer-mode)
+    """
+    parts: list[str] = [
+        f"schema:{report['schema_version']}",
+        f"host:{report['host']}",
+        f"timestamp:{report['timestamp']}",
+    ]
+
+    if section in (Section.ALL, Section.OS):
+        os_info = report["os"]
+        parts.append(f"os:{os_info['pretty_name'].replace(' ', '-')}")
+        parts.append(f"kernel:{os_info['kernel']}")
+
+    if section in (Section.ALL, Section.CC_SUITE):
+        cc = report["cc_suite"]
+        cc_parts = [
+            f"{tool.replace('xed-', '')}-{cc[tool]}"  # type: ignore[literal-required]
+            for tool in ("xed-ccc", "xed-cca", "xed-cci")
+        ]
+        parts.append(f"cc-suite:{','.join(cc_parts)}")
+
+    if section in (Section.ALL, Section.STACK):
+        stack = report["stack"]
+        items: list[str] = []
+        if stack["python3"]:
+            items.append(f"py-{stack['python3']}")
+        if stack["php"]:
+            items.append(f"php-{stack['php']}")
+        if stack["node"]:
+            items.append(f"node-{stack['node']}")
+        parts.append(f"stack:{','.join(items) if items else '(none)'}")
+
+    if section in (Section.ALL, Section.DATABASES):
+        if report["databases"]:
+            db_items = [
+                f"{db['engine']}-{db['version']}"
+                f"({'active' if db['service_active'] else 'inactive'})"
+                for db in report["databases"]
+            ]
+            parts.append(f"databases:{','.join(db_items)}")
+        else:
+            parts.append("databases:(none)")
+
+    if section in (Section.ALL, Section.APPS):
+        if report["apps"]:
+            app_items = [
+                f"{app['name']}-{app['version']}@{app['path']}"
+                f"({app['config_file']},{app['mode']}-mode)"
+                for app in report["apps"]
+            ]
+            parts.append(f"apps:{','.join(app_items)}")
+        else:
+            parts.append("apps:(none)")
+
+    return "|".join(parts)
+
+
+def _render_text(report: InventoryReport, section: Section) -> str:
+    """Plain multi-line Text (kein Rich-Markup) für File-Output + cat.
+
+    Sektional mit [Section]-Headern und key=value-Lines (INI-artig).
+    Geeignet für `cci inventory --format text --output inv.txt` + `cat inv.txt`.
+    """
+    lines: list[str] = [
+        f"# cci inventory — schema {report['schema_version']}",
+        f"# host: {report['host']}",
+        f"# timestamp: {report['timestamp']}",
+        "",
+    ]
+
+    if section in (Section.ALL, Section.OS):
+        os_info = report["os"]
+        lines.append("[OS]")
+        for key in ("id", "version_id", "pretty_name", "kernel"):
+            lines.append(f"  {key} = {os_info[key]}")  # type: ignore[literal-required]
+        lines.append("")
+
+    if section in (Section.ALL, Section.CC_SUITE):
+        cc = report["cc_suite"]
+        lines.append("[CC-Suite]")
+        for tool in ("xed-ccc", "xed-cca", "xed-cci"):
+            lines.append(f"  {tool} = {cc[tool]}")  # type: ignore[literal-required]
+        lines.append("")
+
+    if section in (Section.ALL, Section.STACK):
+        stack = report["stack"]
+        lines.append("[Stack]")
+        lines.append(f"  python3 = {stack['python3']}")
+        lines.append(f"  php = {stack['php'] or '(not installed)'}")
+        lines.append(f"  node = {stack['node'] or '(not installed)'}")
+        lines.append("")
+
+    if section in (Section.ALL, Section.DATABASES):
+        lines.append("[Databases]")
+        if not report["databases"]:
+            lines.append("  (none)")
+        for db in report["databases"]:
+            active = "active" if db["service_active"] else "inactive"
+            lines.append(f"  {db['engine']} = {db['version']} ({active})")
+        lines.append("")
+
+    if section in (Section.ALL, Section.APPS):
+        lines.append("[Server-Apps]")
+        if not report["apps"]:
+            lines.append("  (none)")
+        for app in report["apps"]:
+            lines.append(f"  {app['name']} {app['version']}")
+            lines.append(f"    path   = {app['path']}")
+            lines.append(f"    config = {app['config_file']}")
+            lines.append(f"    mode   = {app['mode']}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def inventory_command(
     section: Section = typer.Option(
         Section.ALL,
@@ -187,36 +313,64 @@ def inventory_command(
         "rich",
         "--format",
         case_sensitive=False,
-        help="Output-Format: 'rich' (Tabellen für Mensch) oder 'json' (AI-Agent).",
+        help="Format: rich (Tabellen) | json (AI-Agent) | oneliner (Single-Line) | text (Plain)",
+    ),
+    output_file: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output in Datei statt stdout (alle Formate). Beispiel: --output /tmp/inventory.txt",
     ),
 ) -> None:
-    """Box-Inventur als Rich-Tabelle oder JSON.
+    """Box-Inventur als Rich-Tabelle, JSON, One-Liner oder Plain-Text.
 
     Sektionen: os, cc-suite, stack, databases, apps, all (Default).
 
+    Formate (v0.0.8):
+
+        rich     — Rich-Tabellen für Mensch (Default)
+        json     — AI-Agent-Konsumtion (Indent 2)
+        oneliner — Single-Line pipe-separated, copy-paste-friendly für Chat
+        text     — Plain multi-line (kein Rich-Markup), File-Output + cat
+
     Beispiele:
 
-        cci inventory                    # Komplette Inventur (Rich)
-        cci inventory --format json      # JSON fuer AI-Agent
-        cci inventory --section os       # Nur OS-Sektion
-        cci inventory --section apps     # Nur Server-Apps
+        cci inventory                                # Komplette Inventur (Rich)
+        cci inventory --format json                  # JSON fuer AI-Agent
+        cci inventory --section os                   # Nur OS-Sektion
+        cci inventory --format oneliner              # 1-Zeile copy-paste
+        cci inventory --format text -o /tmp/inv.txt  # In Datei schreiben
     """
     report = _build_report()
-
     fmt = output_format.lower()
-    if fmt == "json":
-        # JSON-Output via stdout, Rich-Console-Output deaktiviert um
-        # Format-Kontamination zu vermeiden: bei --format json darf KEIN
-        # Rich-Output dazwischen rutschen.
-        filtered = _filter_report(report, section)
-        print(json.dumps(filtered, indent=2))
-        return
 
+    # Rich-Format: Console.print direkt zu stdout oder file
     if fmt == "rich":
-        console = Console()
-        _render_rich(console, report, section)
+        if output_file is not None:
+            with output_file.open("w", encoding="utf-8") as fp:
+                console = Console(file=fp, force_terminal=False, width=120)
+                _render_rich(console, report, section)
+        else:
+            _render_rich(Console(), report, section)
         return
 
-    raise typer.BadParameter(
-        f"Unbekanntes Format: {output_format!r}. Erlaubt: 'rich' oder 'json'."
-    )
+    # Non-Rich-Formate: String-Builder, dann zu stdout oder file
+    if fmt == "json":
+        # JSON-Output: bei Section-Filter nur die gewählte Sektion ausgeben
+        # (statt gesamten Report), für AI-Agent-Konsumtion-Klarheit.
+        filtered = _filter_report(report, section)
+        content = json.dumps(filtered, indent=2)
+    elif fmt == "oneliner":
+        content = _render_oneliner(report, section)
+    elif fmt == "text":
+        content = _render_text(report, section)
+    else:
+        raise typer.BadParameter(
+            f"Unbekanntes Format: {output_format!r}. "
+            "Erlaubt: 'rich' | 'json' | 'oneliner' | 'text'."
+        )
+
+    if output_file is not None:
+        output_file.write_text(content + "\n", encoding="utf-8")
+    else:
+        print(content)

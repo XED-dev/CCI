@@ -10,9 +10,17 @@ from cci.system.inventory.apps import (
     collect_apps_info,
 )
 from cci.system.inventory.apps.typo3 import (
+    _is_typo3_composer_project,
     _parse_typo3_version,
+    _parse_typo3_version_from_lockfile,
+    _resolve_site_root,
     detect_typo3,
 )
+
+
+# ---------------------------------------------------------------------------
+# _parse_typo3_version (Classic-Mode + Composer-Vendor Version-Extraktion)
+# ---------------------------------------------------------------------------
 
 
 # Case 1: _parse_typo3_version mit modernem 'protected const' Pattern
@@ -59,7 +67,172 @@ def test_parse_typo3_version_no_pattern(tmp_path: Path) -> None:
     assert _parse_typo3_version(version_php) == "unknown"
 
 
-# Case 5: detect_typo3 mit fingiertem htdocs-Layout
+# ---------------------------------------------------------------------------
+# _is_typo3_composer_project (Composer-Mode Project-Identifikation)
+# ---------------------------------------------------------------------------
+
+
+# Case 5: composer.json mit typo3/cms-core in require -> True
+def test_is_typo3_composer_project_with_dep(tmp_path: Path) -> None:
+    composer_json = tmp_path / "composer.json"
+    composer_json.write_text(
+        '{"require": {"typo3/cms-core": "^13.4", "php": ">=8.2"}}',
+        encoding="utf-8",
+    )
+    assert _is_typo3_composer_project(composer_json) is True
+
+
+# Case 6: composer.json ohne typo3/cms-core -> False
+def test_is_typo3_composer_project_without_dep(tmp_path: Path) -> None:
+    composer_json = tmp_path / "composer.json"
+    composer_json.write_text(
+        '{"require": {"laravel/framework": "^11.0", "php": ">=8.2"}}',
+        encoding="utf-8",
+    )
+    assert _is_typo3_composer_project(composer_json) is False
+
+
+# Case 7: Invalid JSON -> False (defensive, kein Crash)
+def test_is_typo3_composer_project_invalid_json(tmp_path: Path) -> None:
+    composer_json = tmp_path / "composer.json"
+    composer_json.write_text("not valid json {", encoding="utf-8")
+    assert _is_typo3_composer_project(composer_json) is False
+
+
+# ---------------------------------------------------------------------------
+# _parse_typo3_version_from_lockfile (Composer-Mode Fallback)
+# ---------------------------------------------------------------------------
+
+
+# Case 8: composer.lock mit typo3/cms-core-Eintrag -> version
+def test_parse_version_from_lockfile_finds_typo3(tmp_path: Path) -> None:
+    composer_lock = tmp_path / "composer.lock"
+    composer_lock.write_text(
+        '{"packages": ['
+        '{"name": "typo3/cms-core", "version": "13.4.1"},'
+        '{"name": "symfony/console", "version": "6.4.0"}'
+        ']}',
+        encoding="utf-8",
+    )
+    assert _parse_typo3_version_from_lockfile(composer_lock) == "13.4.1"
+
+
+# Case 9: composer.lock mit 'v'-Prefix vor Version -> stripped
+def test_parse_version_from_lockfile_strips_v_prefix(tmp_path: Path) -> None:
+    composer_lock = tmp_path / "composer.lock"
+    composer_lock.write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "v12.4.10"}]}',
+        encoding="utf-8",
+    )
+    assert _parse_typo3_version_from_lockfile(composer_lock) == "12.4.10"
+
+
+# Case 10: composer.lock ohne typo3-Eintrag -> 'unknown'
+def test_parse_version_from_lockfile_no_match(tmp_path: Path) -> None:
+    composer_lock = tmp_path / "composer.lock"
+    composer_lock.write_text(
+        '{"packages": [{"name": "symfony/console", "version": "6.4.0"}]}',
+        encoding="utf-8",
+    )
+    assert _parse_typo3_version_from_lockfile(composer_lock) == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# detect_typo3 — Composer-Mode Integration
+# ---------------------------------------------------------------------------
+
+
+# Case 11: Composer-Mode mit vendor/cms-core/Typo3Version.php -> version + mode
+def test_detect_typo3_composer_mode_vendor(tmp_path: Path) -> None:
+    """Composer-Mode-Site mit installiertem vendor/typo3/cms-core."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    (site / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^13.4"}}',
+        encoding="utf-8",
+    )
+
+    vendor_core = site / "vendor" / "typo3" / "cms-core" / "Classes" / "Information"
+    vendor_core.mkdir(parents=True)
+    (vendor_core / "Typo3Version.php").write_text(
+        "<?php\nclass Typo3Version {\n"
+        "    protected const VERSION = '13.4.1';\n}\n",
+        encoding="utf-8",
+    )
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 1
+    assert result[0]["name"] == "typo3"
+    assert result[0]["version"] == "13.4.1"
+    assert result[0]["path"] == str(site)
+    assert result[0]["config_file"] == "composer.json"
+    assert result[0]["mode"] == "composer"
+
+
+# Case 12: Composer-Mode ohne vendor/ aber mit composer.lock -> Fallback-Version
+def test_detect_typo3_composer_mode_lockfile_fallback(tmp_path: Path) -> None:
+    """Composer-Mode ohne vendor/ — Version aus composer.lock."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    (site / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^12.4"}}',
+        encoding="utf-8",
+    )
+    (site / "composer.lock").write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "12.4.10"}]}',
+        encoding="utf-8",
+    )
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 1
+    assert result[0]["version"] == "12.4.10"
+    assert result[0]["mode"] == "composer"
+
+
+# Case 13: Composer-Mode komplett ohne Version-Info -> 'unknown'
+def test_detect_typo3_composer_mode_unknown_version(tmp_path: Path) -> None:
+    """Composer-Mode: composer.json vorhanden, aber kein vendor/ und kein lock."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    (site / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^13.4"}}',
+        encoding="utf-8",
+    )
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 1
+    assert result[0]["version"] == "unknown"
+    assert result[0]["mode"] == "composer"
+
+
+# Case 14: composer.json ohne typo3/cms-core -> skip (kein Treffer)
+def test_detect_typo3_skips_non_typo3_composer(tmp_path: Path) -> None:
+    """composer.json mit anderer Framework-Dep wird übersprungen."""
+    site = tmp_path / "laravel-site"
+    site.mkdir()
+    (site / "composer.json").write_text(
+        '{"require": {"laravel/framework": "^11.0"}}',
+        encoding="utf-8",
+    )
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# detect_typo3 — Classic-Mode Integration (mit mode-Feld)
+# ---------------------------------------------------------------------------
+
+
+# Case 15: detect_typo3 mit fingiertem htdocs-Layout -> classic-Mode
 def test_detect_typo3_finds_htdocs_installation(tmp_path: Path) -> None:
     """Fingiertes /var/www/example.com/htdocs/typo3conf/ + Typo3Version.php."""
     site = tmp_path / "example.com" / "htdocs"
@@ -85,10 +258,10 @@ def test_detect_typo3_finds_htdocs_installation(tmp_path: Path) -> None:
     assert result[0]["version"] == "12.4.10"
     assert result[0]["path"] == str(site)
     assert result[0]["config_file"] == "typo3conf/LocalConfiguration.php"
+    assert result[0]["mode"] == "classic"
 
 
-# Case 5b: detect_typo3 mit flat-Layout (typo3conf direkt unter Site-Root,
-# kein htdocs/-Subordner) — schließt Coverage-Lücke aus SS4-Sweep O1.
+# Case 16: detect_typo3 mit flat-Layout -> classic-Mode
 def test_detect_typo3_finds_flat_installation(tmp_path: Path) -> None:
     """Flat-Layout: /var/www/example.com/typo3conf/ (kein htdocs)."""
     site = tmp_path / "example.com"
@@ -113,9 +286,67 @@ def test_detect_typo3_finds_flat_installation(tmp_path: Path) -> None:
     assert result[0]["name"] == "typo3"
     assert result[0]["version"] == "13.4.0"
     assert result[0]["path"] == str(site)
+    assert result[0]["mode"] == "classic"
 
 
-# Case 6: detect_typo3 mit nicht-existentem /var/www/ -> leere Liste
+# ---------------------------------------------------------------------------
+# detect_typo3 — Multi-Mode (Coverage für seen-Set über beide Phasen)
+# ---------------------------------------------------------------------------
+
+
+# Case 17: Multi-Site mit Classic + Composer parallel -> 2 Treffer
+def test_detect_typo3_multimode_classic_and_composer(tmp_path: Path) -> None:
+    """Box mit zwei TYPO3-Sites: eine Classic, eine Composer."""
+    # Classic-Mode-Site
+    classic_site = tmp_path / "legacy.example.com"
+    classic_typo3conf = classic_site / "typo3conf"
+    classic_typo3conf.mkdir(parents=True)
+    (classic_typo3conf / "LocalConfiguration.php").write_text(
+        "<?php\nreturn [];\n", encoding="utf-8"
+    )
+    classic_core = (
+        classic_site / "typo3" / "sysext" / "core" / "Classes" / "Information"
+    )
+    classic_core.mkdir(parents=True)
+    (classic_core / "Typo3Version.php").write_text(
+        "<?php\nclass Typo3Version {\n"
+        "    public const VERSION = '11.5.32';\n}\n",
+        encoding="utf-8",
+    )
+
+    # Composer-Mode-Site
+    composer_site = tmp_path / "modern.example.com"
+    composer_site.mkdir()
+    (composer_site / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^13.4"}}',
+        encoding="utf-8",
+    )
+    vendor_core = (
+        composer_site / "vendor" / "typo3" / "cms-core" / "Classes" / "Information"
+    )
+    vendor_core.mkdir(parents=True)
+    (vendor_core / "Typo3Version.php").write_text(
+        "<?php\nclass Typo3Version {\n"
+        "    protected const VERSION = '13.4.1';\n}\n",
+        encoding="utf-8",
+    )
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 2
+    modes = {entry["mode"] for entry in result}
+    assert modes == {"classic", "composer"}
+    versions = {entry["version"] for entry in result}
+    assert versions == {"11.5.32", "13.4.1"}
+
+
+# ---------------------------------------------------------------------------
+# detect_typo3 — Edge-Cases
+# ---------------------------------------------------------------------------
+
+
+# Case 18: detect_typo3 mit nicht-existentem /var/www/ -> leere Liste
 def test_detect_typo3_no_var_www(tmp_path: Path) -> None:
     fake_path = tmp_path / "nonexistent"
     with patch("cci.system.inventory.apps.typo3._VAR_WWW", fake_path):
@@ -123,9 +354,9 @@ def test_detect_typo3_no_var_www(tmp_path: Path) -> None:
     assert result == []
 
 
-# Case 7: detect_typo3 mit existing /var/www/ aber keinem typo3 -> leere Liste
+# Case 19: detect_typo3 mit existing /var/www/ aber keinem typo3 -> leere Liste
 def test_detect_typo3_no_typo3_installations(tmp_path: Path) -> None:
-    """Statisches Site ohne typo3conf/LocalConfiguration.php -> 0 Treffer."""
+    """Statisches Site ohne TYPO3-Marker -> 0 Treffer."""
     static_site = tmp_path / "static-site"
     static_site.mkdir()
     (static_site / "index.html").write_text("hello", encoding="utf-8")
@@ -135,7 +366,12 @@ def test_detect_typo3_no_typo3_installations(tmp_path: Path) -> None:
     assert result == []
 
 
-# Case 8: collect_apps_info nutzt DETECTORS-Registry
+# ---------------------------------------------------------------------------
+# Registry-Tests
+# ---------------------------------------------------------------------------
+
+
+# Case 20: collect_apps_info nutzt DETECTORS-Registry
 def test_collect_apps_info_uses_registry(tmp_path: Path) -> None:
     """collect_apps_info iteriert DETECTORS — leere Box -> leere Liste."""
     fake_path = tmp_path / "nonexistent"
@@ -145,11 +381,120 @@ def test_collect_apps_info_uses_registry(tmp_path: Path) -> None:
     assert result == []
 
 
-# Case 9: DETECTORS-Registry enthält erwartete Detector-Funktionen
+# Case 21: DETECTORS-Registry enthält erwartete Detector-Funktionen
 def test_detectors_registry_contains_typo3() -> None:
-    """v0.0.1: nur typo3 in Registry. Lakmus-Test gegen versehentliche
+    """v0.0.x: nur typo3 in Registry. Lakmus-Test gegen versehentliche
     Pre-Optimization (pluggy/zusätzliche Detectors)."""
     assert "typo3" in DETECTORS
     assert callable(DETECTORS["typo3"])
-    # Phase 1 v0.0.1: nur ein Detector — weitere Apps als v0.x-Backlog
+    # Phase 1 v0.0.x: nur ein Detector — weitere Apps als v0.x-Backlog
     assert len(DETECTORS) == 1
+
+
+# ---------------------------------------------------------------------------
+# _resolve_site_root (v0.0.8 — Deployer-Layout-Support)
+# ---------------------------------------------------------------------------
+
+
+# Case 22: _resolve_site_root strippt 'current/' für Deployer-Layout
+def test_resolve_site_root_strips_current() -> None:
+    """Deployer-Layout: composer.json in <site>/current/ → site_root = <site>/."""
+    composer_json = Path("/var/www/site.com/current/composer.json")
+    assert _resolve_site_root(composer_json) == Path("/var/www/site.com")
+
+
+# Case 23: _resolve_site_root nimmt parent direkt wenn nicht 'current/'
+def test_resolve_site_root_keeps_direct() -> None:
+    """Top-Level-Layout: composer_json.parent IST site_root."""
+    composer_json = Path("/var/www/site.com/composer.json")
+    assert _resolve_site_root(composer_json) == Path("/var/www/site.com")
+
+
+# ---------------------------------------------------------------------------
+# detect_typo3 — neue Layout-Sub-Patterns (v0.0.8)
+# ---------------------------------------------------------------------------
+
+
+# Case 24: Deployer-Layout — current → releases/N/composer.json
+def test_detect_typo3_deployer_layout(tmp_path: Path) -> None:
+    """Composer-Mode mit deployer.org-Pattern: current → releases/N."""
+    site = tmp_path / "preprod.example.com"
+    release_dir = site / "releases" / "65"
+    release_dir.mkdir(parents=True)
+
+    (release_dir / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^11.5"}}',
+        encoding="utf-8",
+    )
+    (release_dir / "composer.lock").write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "11.5.42"}]}',
+        encoding="utf-8",
+    )
+
+    # current/ symlink auf releases/65/
+    (site / "current").symlink_to(release_dir, target_is_directory=True)
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 1
+    assert result[0]["name"] == "typo3"
+    assert result[0]["version"] == "11.5.42"
+    # path zeigt logischen Site-Root, NICHT releases/65
+    assert result[0]["path"] == str(site)
+    # config_file zeigt Sub-Pattern implizit
+    assert result[0]["config_file"] == "current/composer.json"
+    assert result[0]["mode"] == "composer"
+
+
+# Case 25: typo3-base Layout — /var/www/typo3/<site>/composer.json
+def test_detect_typo3_typo3_base_layout(tmp_path: Path) -> None:
+    """Composer-Mode mit DevOps-Konvention /var/www/typo3/<site>/."""
+    site = tmp_path / "typo3" / "example.com"
+    site.mkdir(parents=True)
+
+    (site / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^13.4"}}',
+        encoding="utf-8",
+    )
+    (site / "composer.lock").write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "13.4.5"}]}',
+        encoding="utf-8",
+    )
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 1
+    assert result[0]["version"] == "13.4.5"
+    assert result[0]["path"] == str(site)
+    assert result[0]["config_file"] == "composer.json"
+    assert result[0]["mode"] == "composer"
+
+
+# Case 26: typo3-base + Deployer kombiniert
+def test_detect_typo3_typo3_base_deployer_combined(tmp_path: Path) -> None:
+    """Composer-Mode mit typo3-base + Deployer: typo3/<site>/current → releases/N."""
+    site = tmp_path / "typo3" / "deploy.example.com"
+    release_dir = site / "releases" / "12"
+    release_dir.mkdir(parents=True)
+
+    (release_dir / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^13.4"}}',
+        encoding="utf-8",
+    )
+    (release_dir / "composer.lock").write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "13.4.10"}]}',
+        encoding="utf-8",
+    )
+
+    (site / "current").symlink_to(release_dir, target_is_directory=True)
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 1
+    assert result[0]["version"] == "13.4.10"
+    assert result[0]["path"] == str(site)
+    assert result[0]["config_file"] == "current/composer.json"
+    assert result[0]["mode"] == "composer"

@@ -32,3 +32,17 @@ def test_inventory_command_runs_default() -> None:
     assert "OS" in result.stdout
     assert "CC-Suite" in result.stdout
     assert "Stack" in result.stdout
+
+
+def test_version_short_v_alias_shows_version() -> None:
+    """v0.0.7: -v als Short-Form fuer --version (SysOps-Erwartung: -V belegt = -v belegt)."""
+    result = runner.invoke(app, ["-v"])
+    assert result.exit_code == 0
+    assert __version__ in result.stdout
+
+
+def test_help_short_h_alias_shows_help() -> None:
+    """v0.0.7: -h als Short-Form fuer --help via Typer context_settings."""
+    result = runner.invoke(app, ["-h"])
+    assert result.exit_code == 0
+    assert "inventory" in result.stdout
