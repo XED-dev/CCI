@@ -273,13 +273,18 @@ EOF
 
 show_hint() {
     echo
-    echo "→ Naechste Schritte (Read-Only-Inventur):"
+    echo "╭─ Options ────────────────────────────────────────────────────────╮"
+    echo "│   --version  -v        Zeige Version und beende.                 │"
+    echo "│   --help     -h        Hilfe anzeigen und beenden.               │"
+    echo "╰──────────────────────────────────────────────────────────────────╯"
     echo
-    echo "    cci inventory                     # Komplette Inventur (Rich)"
-    echo "    cci inventory --format json       # JSON fuer AI-Agent"
-    echo "    cci inventory --section os        # Nur OS-Sektion"
-    echo "    cci inventory --section apps      # Nur Server-Apps"
-    echo "    cci --help | cci -h               # Verb-Uebersicht"
+    echo "╭─ inventory Commands ─ Box-Inventur als Rich-Tabelle oder JSON. ──╮"
+    echo "│   cci inventory                    # Komplette Inventur (Rich)   │"
+    echo "│   cci inventory --format json      # JSON fuer AI-Agent          │"
+    echo "│   cci inventory --section os       # Nur OS-Sektion              │"
+    echo "│   cci inventory --section apps     # Nur Server-Apps             │"
+    echo "│   cci --help | cci -h              # Verb-Uebersicht             │"
+    echo "╰──────────────────────────────────────────────────────────────────╯"
     echo
     echo "→ Audit-Log dieses Bootstrap-Runs: ${FIRSTBOOT_LOG_FILE}"
     echo "    tail -50 ${FIRSTBOOT_LOG_FILE}"
