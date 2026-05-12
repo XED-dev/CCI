@@ -5,6 +5,60 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.0.6] — 2026-05-12
+
+### Fixed (UX-Default-Korrektur + Ursachen-Phrase-Korrektur + Initial-Install-Pin)
+
+- **`docs/firstboot.sh`: Default-Flip in User-Agency-Box — `[Y]` = Update
+  auf latest (statt vorher `[Y]` = Keep installed).**
+  v0.0.5 hatte als Default „Weitermachen mit installierter Version". Aber
+  User-Intent von `bash <(curl)` ist „latest installieren". Wenn User Enter
+  drückt (Default), bekam er die ALTE Version → User-Intent strukturell
+  sabotiert. Bidirektional-Lehre: Bootstrap-Distribution-Pattern hat IMMER
+  Default = „prominent latest", nie „mit installierter bleiben".
+
+  **Korrektur:** `[Y]` = Update auf `v${latest}` (Default, empfohlen).
+  `[k]` = Keep `v${installed}` (alte Version explizit behalten). `[n]` =
+  Abbrechen. Unklare Auswahl → Safety-Default = Update (User-Intent-konform).
+
+- **`docs/firstboot.sh`: Initial-Install mit Version-Pin (defensive).**
+  `install_cci()` ruft jetzt zuerst `_pypi_latest_version()` und installiert
+  `pipx install --force xed-cci==${latest}`. Fallback ohne Pin nur bei
+  PyPI-API-Fail. User-Agency-Box triggert nur noch in Edge-Cases.
+
+- **Ursachen-Phrase autoritativ korrigiert.**
+  v0.0.5 nannte „PyPI-CDN-Stale + pipx-Resolver-Pinning". Das war spekulativ
+  — `_pypi_latest_version()` hatte bewiesen dass PyPI korrekt latest meldete
+  (kein CDN-Stale). Web-Recherche der pipx-CHANGELOG zeigte: **pipx 1.3.0
+  (Februar 2024) erst implementierte „Force now implies --force-reinstall to
+  pip arguments".** Ubuntu 22.04 Default ist pipx 1.0.0 (2022) — KEIN
+  automatic --force-reinstall, pip kann lokale wheel-Cache reusen,
+  `--no-cache-dir` bypasst nur HTTP-Cache.
+
+  **Korrektur:** Box-Phrase + CHANGELOG verewigen autoritative Wurzel:
+  „pipx < 1.3.0 fehlt automatic --force-reinstall (Ubuntu 22.04 Default)."
+
+- **`firstboot.sh` VERSION sync mit Tool-Version** (0.0.5 → 0.0.6).
+
+### Pattern-Anker (Lehr-Verkettung)
+
+Bootstrap-Distribution-Pattern Default-Polarity: IMMER prominent „letzte
+Version updaten" als Default, nie „mit installierter bleiben". User-Intent
+von `bash <(curl)` ist „latest installieren" — Default muss diesem Intent
+folgen, nie ihm widersprechen.
+
+Investigations-Hierarchie-Anwendung: spekulative Ursachen-Phrasen niemals
+in Code oder CHANGELOG verewigen. Web-Recherche zuerst, dann autoritative
+Wurzel benennen. Falsche Diagnose-Phrase „PyPI-CDN-Stale" hat sich heute
+durch v0.0.5-Box auf osU2404 als Live-Lüge gezeigt — Asche-Korrektur in
+v0.0.6 mit autoritativer Wurzel aus pipx-CHANGELOG.
+
+Power-User-Features (Version-Auswahl, Deinstall) gehören in Doku/Hilfe/
+Support, NICHT in Haupt-Dialog. Minimal-Surface > Power-Features im
+Bootstrap-Dialog (DevOps-Lehre 2026-05-12: „mehr Probleme als Lösungen").
+
+[0.0.6]: https://github.com/XED-dev/CCI/releases/tag/v0.0.6
+
 ## [0.0.5] — 2026-05-12
 
 ### Hinzugefügt (SS7-Adaption: firstboot.sh User-Agency vs PyPI-CDN-Stale + pipx-Resolver-Pinning)

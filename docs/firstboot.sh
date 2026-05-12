@@ -1,15 +1,15 @@
 #!/bin/bash
-# firstboot.sh v0.0.5 — XED /CCI cBOX@ /Container Inventur Bootstrap
+# firstboot.sh v0.0.6 — XED /CCI cBOX@ /Container Inventur Bootstrap
 #
 # Quelle:    https://github.com/XED-dev/CCI
 # Aufruf:    bash <(curl -s https://cci.xed.dev/firstboot.sh)
 # Lokal:     bash firstboot.sh
 #
-# Was es tut (~210 Zeilen, schmal weil cci Read-Only-Tool ist):
+# Was es tut (~230 Zeilen, schmal weil cci Read-Only-Tool ist):
 #   Phase 0   — Pre-Flight (root + distro + Audit-Log-Init)
 #   Phase 1   — apt install Python-Stack + pipx (Phased-Updates-Bypass)
-#   Phase 2   — pipx install xed-cci (--force, no-cache-dir Bypass)
-#   Phase 2.5 — Version-Verify mit User-Agency vs PyPI-CDN-Stale (SS7)
+#   Phase 2   — pipx install xed-cci mit Version-Pin (latest from PyPI)
+#   Phase 2.5 — Version-Verify-Edge-Cases mit User-Agency (SS7)
 #   Phase 3   — PATH-Fix (pct-enter-Falle)
 #   Phase 4   — Hint-Block (cci inventory-Verben)
 #
@@ -23,7 +23,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # === Globals ===
 
-VERSION="0.0.5"
+VERSION="0.0.6"
 SCRIPT_NAME="firstboot.sh"
 FIRSTBOOT_LOG_FILE="/var/log/xed-cci.log"
 
@@ -112,35 +112,12 @@ bootstrap_apt() {
     ok "Python-Stack bereit: pipx $(pipx --version 2>&1 | head -1)"
 }
 
-# === Phase 2 — pipx install xed-cci ===
+# === Phase 2.5 helpers — Version-Quellen ===
 
-install_cci() {
-    export PIPX_HOME="$PIPX_HOME_DIR"
-    export PIPX_BIN_DIR="$PIPX_BIN_DIR_PATH"
-
-    # Bootstrap-Distribution-Pattern: pipx install --force xed-cci. Support-
-    # Garantie ist Hard-Requirement + pipx-version-unabhaengig. --no-cache-dir
-    # bypasst lokalen pip-HTTP-Cache als defense-in-depth.
-    info "xed-cci via pipx (install --force, no-cache-dir)..."
-    pipx install --force xed-cci --pip-args="--no-cache-dir"
-    ok "xed-cci installiert via pipx"
-
-    # SS7-Adaption: User-Agency vs PyPI-CDN-Stale + pipx-Resolver-Pinning.
-    # pipx 1.0.0 --force ohne Version-Pin nimmt existing-venv-Metadata als
-    # Resolver-Input statt PyPI-latest — silent-fail-Risiko. verify-Funktion
-    # macht die Divergenz transparent + gibt User-Agency statt Hidden-Magie.
-    verify_version_with_user_agency
-}
-
-# === Phase 2.5 — Version-Verify mit User-Agency (SS7) ===
-
-# Pattern-Anker: „System luegt nicht statt Cache-Hide-Magie."
-# Nach pipx-Install vergleicht das Skript installed-Version mit PyPI-latest.
-# Bei Divergenz: User-Agency-Prompt mit Versions-Box + 3 Optionen [Y/r/n].
-# Max-Retries-Cap gegen Infinite-Loop. Defense-Recovery bei Check-Failure.
+# Pre-definiert vor install_cci() weil Initial-Install latest aus PyPI braucht.
+# Stdlib-Reflex: python3 ist nach Phase-1-apt verfuegbar.
 
 _pipx_installed_version() {
-    # Stdlib-Reflex: python3 ist nach Phase-1-apt verfuegbar.
     # pipx 1.0.0 hat --json, nicht --short (Live-Lehre aus v0.0.4-Bug).
     pipx list --json 2>/dev/null | python3 -c "
 import json, sys
@@ -166,6 +143,42 @@ except (KeyError, json.JSONDecodeError):
 " 2>/dev/null
 }
 
+# === Phase 2 — pipx install xed-cci mit Version-Pin ===
+
+install_cci() {
+    export PIPX_HOME="$PIPX_HOME_DIR"
+    export PIPX_BIN_DIR="$PIPX_BIN_DIR_PATH"
+
+    # Bootstrap-Distribution-Pattern: Initial-Install mit Version-Pin via
+    # PyPI-API-Query. Pin umgeht pipx < 1.3.0 fehlendes automatic
+    # --force-reinstall-Forwarding (Ubuntu 22.04 Default ist pipx 1.0.0).
+    # Quelle: pipx CHANGELOG (https://pipx.pypa.io/stable/changelog/) —
+    # „pipx 1.3.0 (Feb 2024): Force now implies --force-reinstall to pip".
+    # Fallback ohne Pin bei PyPI-Check-Fail — User-Agency-Box catches up.
+    local latest
+    latest=$(_pypi_latest_version)
+    if [ -n "$latest" ]; then
+        info "xed-cci via pipx install --force xed-cci==${latest}..."
+        pipx install --force "xed-cci==${latest}" --pip-args="--no-cache-dir"
+    else
+        info "xed-cci via pipx install --force (PyPI-Check failed, Fallback ohne Pin)..."
+        pipx install --force xed-cci --pip-args="--no-cache-dir"
+    fi
+    ok "xed-cci installiert via pipx"
+
+    # SS7-Adaption: User-Agency-Box bei Edge-Cases (z.B. Initial-Pin failed
+    # weil PyPI-API down war, oder PyPI-Drift zwischen Install und Verify).
+    # System luegt nicht statt Cache-Hide-Magie.
+    verify_version_with_user_agency
+}
+
+# === Phase 2.5 — Version-Verify mit User-Agency (SS7) ===
+
+# Pattern-Anker: „System luegt nicht statt Cache-Hide-Magie."
+# Default ist IMMER Update auf PyPI-latest (User-Intent von `bash <(curl)`).
+# [k] erlaubt User explizit „bei installierter bleiben". [n] abbrechen.
+# Max-Retries-Cap gegen Infinite-Loop. Defense-Recovery bei Check-Failure.
+
 verify_version_with_user_agency() {
     local retry_count=0
     while true; do
@@ -189,45 +202,40 @@ verify_version_with_user_agency() {
             return 0
         fi
 
-        # Versions-Divergenz — User-Agency.
+        # Max-Retries erreicht — Resignation mit Warning (System luegt nicht).
+        if [ "$retry_count" -ge "$VERIFY_MAX_RETRIES" ]; then
+            warn "Max-Retries (${VERIFY_MAX_RETRIES}) erreicht — installed v${installed} bleibt (PyPI latest waere v${latest})."
+            return 0
+        fi
+
+        # Versions-Divergenz — User-Agency mit Default=Update.
         echo
         echo "  ┌─ Versions-Divergenz ──────────────────────────────────────┐"
         printf "  │ Installiert: v%-44s│\n" "${installed}"
         printf "  │ PyPI latest: v%-44s│\n" "${latest}"
-        echo "  │ Ursache: PyPI-CDN-Stale + pipx-Resolver-Pinning.           │"
+        echo "  │ Ursache: pipx < 1.3.0 fehlt automatic --force-reinstall.   │"
         echo "  └────────────────────────────────────────────────────────────┘"
         echo
-        echo "  [Y] Weitermachen mit v${installed}  (Default)"
-        if [ "$retry_count" -lt "$VERIFY_MAX_RETRIES" ]; then
-            echo "  [r] Retry mit Version-Pin: pipx install --force xed-cci==${latest}  (${retry_count}/${VERIFY_MAX_RETRIES})"
-        fi
+        echo "  [Y] Auf v${latest} updaten  (Default — empfohlen)"
+        echo "  [k] Bei v${installed} bleiben"
         echo "  [n] Abbrechen"
         echo
         local response=""
-        read -r -p "  Auswahl [Y/r/n]: " response
+        read -r -p "  Auswahl [Y/k/n]: " response
         case "${response:-Y}" in
-            [Yy])
-                ok "User-Wahl: weiter mit v${installed}."
+            [Kk])
+                ok "User-Wahl [k]: bei v${installed} bleiben."
                 return 0
                 ;;
-            [Rr])
-                if [ "$retry_count" -ge "$VERIFY_MAX_RETRIES" ]; then
-                    info "Max-Retries (${VERIFY_MAX_RETRIES}) erreicht — weiter mit v${installed}."
-                    return 0
-                fi
-                retry_count=$((retry_count + 1))
-                info "Retry ${retry_count}/${VERIFY_MAX_RETRIES}: pipx install --force xed-cci==${latest}..."
-                # Version-Pin umgeht pipx-1.0.0 --force-Same-Version-Bug
-                # (Live-Lehre osU2404 2026-05-12).
-                pipx install --force "xed-cci==${latest}" --pip-args="--no-cache-dir"
-                ;;
             [Nn])
-                err "User-Wahl: Abbrechen."
+                err "User-Wahl [n]: Abbrechen."
                 exit 1
                 ;;
             *)
-                ok "Unklare Auswahl '${response}' — Safety-Default [Y]: weiter mit v${installed}."
-                return 0
+                # Default + unklare Auswahl → Update (User-Intent-konform).
+                retry_count=$((retry_count + 1))
+                info "Update ${retry_count}/${VERIFY_MAX_RETRIES}: pipx install --force xed-cci==${latest}..."
+                pipx install --force "xed-cci==${latest}" --pip-args="--no-cache-dir"
                 ;;
         esac
     done
