@@ -5,6 +5,58 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.0.5] — 2026-05-12
+
+### Hinzugefügt (SS7-Adaption: firstboot.sh User-Agency vs PyPI-CDN-Stale + pipx-Resolver-Pinning)
+
+- **`docs/firstboot.sh`: nach pipx-Install vergleicht das Skript installed-
+  Version mit PyPI-latest-Version. Bei Divergenz: User-Agency-Prompt mit
+  Versions-Box + Optionen [Y/r/n].**
+  Live-Use-Case auf osU2404 (Ubuntu 22.04, pipx 1.0.0): `pipx install --force
+  xed-cci` reinstalliert ins existing venv MIT DERSELBEN Version (0.0.2)
+  statt PyPI-latest (0.0.4) zu pullen — pipx-1.0.0-`--force`-Semantik nimmt
+  existing-venv-Metadata als Resolver-Input. Plus PyPI-Fastly-CDN-Stale-
+  Backend kann ähnliche Symptome bei frisch-uploaded Versionen zeigen.
+  v0.0.4-Fix (`--force`) löste pipx-list-short-Bug, nicht den `--force`-
+  Same-Version-Bug.
+
+  **Lösung:** SS7-Vision aus AI040 für ccc-bootstrap-system Layer-adaptiert
+  für firstboot.sh-Bash. Pattern: „System lügt nicht statt Cache-Hide-Magie."
+  Nach Install macht `verify_version_with_user_agency()`:
+  1. `pipx list --json` für installed-Version-Extraktion (Stdlib-only via
+     python3-Heredoc — pipx-1.0.0 hat `--json`, nicht `--short`)
+  2. PyPI JSON API für latest-Version (`curl + python3 -c "json.load"`)
+  3. Defense-Recovery bei curl-Fail oder JSON-Decode-Fail: weiter mit
+     installed-Version, Warning loggen — kein Block
+  4. Bei Match: OK-Marker
+  5. Bei Divergenz: Versions-Box + 3 Optionen:
+     - **[Y]** Weitermachen (Default, Safety-Default-Pattern)
+     - **[r]** Retry mit Version-Pin: `pipx install --force xed-cci==${latest}`
+       — explicit-Version-Pin umgeht pipx-1.0.0-`--force`-Same-Version-Bug
+       (Empirik-getriebene Schärfung)
+     - **[n]** Abbrechen
+  6. Max-5-Retries-Cap gegen Infinite-Loop
+
+- **`firstboot.sh` VERSION-Konstante sync mit Tool-Version** (0.0.4 → 0.0.5).
+
+### Pattern-Anker
+
+Vision-Patterns sind Layer-agnostic, Implementations sind Layer-spezifisch.
+SS7-Wurzel (User-Agency vs Hidden-Retry-Magie) bleibt invariant über Tool-
+Layer-Grenzen — Bash-Bootstrap vs Python-Verb. Implementations-Variante folgt
+Layer-Konstraints (Bash `read -p` statt Whiptail; python3-Heredoc statt jq).
+
+Bidirektional-Lehre für AI-Agents: Self-Healing-Workflow > Workaround als
+Default. Workaround NUR wenn Self-Healing-Workflow nachweislich gescheitert
+— sonst verliert man Test-Chance + Diagnose-Quelle. Empirik (Phase-G v0.0.4-
+Live-Test) gibt Sprint-Priorität-Klärung > theoretische Pattern-Bewertung.
+
+Plus Symptom-Fix-Loop-Detection: wenn 3+ Sprints kurz hintereinander dasselbe
+Layer touchen, ist die Wurzel woanders. Strukturelle Lösung (User-Agency)
+schlägt Pattern-Switching (--force vs upgrade-or-install).
+
+[0.0.5]: https://github.com/XED-dev/CCI/releases/tag/v0.0.5
+
 ## [0.0.4] — 2026-05-12
 
 ### Fixed (firstboot.sh pipx-Upgrade-Pfad)
