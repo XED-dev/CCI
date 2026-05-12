@@ -5,6 +5,56 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.0.7] — 2026-05-12
+
+### Hinzugefügt (Help-UX-Korrektur + θ-Platzhalter)
+
+- **`cli.py`: `-v` als Short-Form für `--version` (statt `-V`).**
+  SysOps-Erwartung (DevOps-Direktive 2026-05-12): wenn `-V` belegt ist,
+  ist `-v` aus User-Sicht ebenfalls belegt. Hauptbuchstabe-Variante macht
+  semantisch keinen Unterschied — der User tippt `cci -v` und erwartet
+  Version-Output. v0.0.6 hatte `-V` (Groß-V), Phase-G-Live-Test zeigte
+  `cci -v` → „No such option: -v"-Error.
+
+- **`cli.py`: `-h` als Alias für `--help` via Typer `context_settings`.**
+  Mainstream-Bash-Idiomatik. Plus `cci --help | cci -h`-Hinweis im
+  firstboot.sh Hint-Block sichtbar.
+
+- **`commands/inventory.py`: docstring-Erweiterung mit Beispiel-Block.**
+  Format folgt DevOps-Direktive 2026-05-12 — vier konkrete Inventur-
+  Beispiele im `cci inventory --help`-Output sichtbar.
+
+- **`cli.py`: `--dialog` / `-d` als hidden Platzhalter für Power-Dialog.**
+  DevOps-Pattern-Anker 2026-05-12: künftige Power-Features (Version-
+  Auswahl, Deinstall-Option, Verb-spezifische Detail-Inventur) sollen via
+  `--dialog`/`-d`-Option erreichbar sein — NICHT im Haupt-Dialog.
+  Mainstream-Alternative zu `--windy`/`-w` (deutsch-anglizistisch wachs-
+  weich) oder `--power`/`-p` (zu generisch). `--dialog` semantisch klar
+  für „dialog-style UIs". Aktuell `hidden=True` — Platzhalter für spätere
+  v0.x-Implementations.
+
+- **`firstboot.sh` VERSION sync mit Tool-Version** (0.0.6 → 0.0.7).
+  Plus Hint-Block: `cci --help | cci -h` als Alias-Anzeige.
+
+### Tests
+
+- 2 neue Cases in `test_cli.py`: `-v`-Alias + `-h`-Alias.
+- 78/78 pytest grün (76 + 2).
+
+### Pattern-Anker
+
+CLI-Short-Form-Konsistenz: wenn ein Buchstabe belegt ist, gilt er sowohl
+als Klein- als auch Großvariante aus User-Sicht. Mainstream-Idiomatik
+bevorzugt Kleinbuchstaben (`-v`, `-h`, `-d`) — Großbuchstaben nur für
+disambiguierte Konflikt-Fälle. DevOps-Lehre 2026-05-12.
+
+Power-Dialog-Pattern (`--dialog`/`-d`): minimal-Surface im Default-Dialog,
+Power-Features hinter Opt-In-Flag. Plus Verb-spezifische Detail-Inventur
+in v0.x via `cci inventory --dialog`. Skizze als hidden-Typer-Option
+verewigt.
+
+[0.0.7]: https://github.com/XED-dev/CCI/releases/tag/v0.0.7
+
 ## [0.0.6] — 2026-05-12
 
 ### Fixed (UX-Default-Korrektur + Ursachen-Phrase-Korrektur + Initial-Install-Pin)

@@ -32,6 +32,7 @@ app = typer.Typer(
     "cBOX.at/YOU by XED.dev Tools via Collective Context (CC).",
     no_args_is_help=True,
     add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 console = Console()
 
@@ -47,10 +48,17 @@ def main_callback(
     version: Optional[bool] = typer.Option(
         None,
         "--version",
-        "-V",
+        "-v",
         help="Zeige Version und beende.",
         callback=version_callback,
         is_eager=True,
+    ),
+    dialog: Optional[bool] = typer.Option(
+        None,
+        "--dialog",
+        "-d",
+        help="Power-Dialog mit Verb-spezifischen Detail-Optionen (TBD — Platzhalter v0.0.7).",
+        hidden=True,
     ),
 ) -> None:
     """xed-cci Top-Level-Callback. Lädt globale Optionen wie --version."""

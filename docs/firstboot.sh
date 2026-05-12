@@ -1,5 +1,5 @@
 #!/bin/bash
-# firstboot.sh v0.0.6 — XED /CCI cBOX@ /Container Inventur Bootstrap
+# firstboot.sh v0.0.7 — XED /CCI cBOX@ /Container Inventur Bootstrap
 #
 # Quelle:    https://github.com/XED-dev/CCI
 # Aufruf:    bash <(curl -s https://cci.xed.dev/firstboot.sh)
@@ -23,7 +23,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # === Globals ===
 
-VERSION="0.0.6"
+VERSION="0.0.7"
 SCRIPT_NAME="firstboot.sh"
 FIRSTBOOT_LOG_FILE="/var/log/xed-cci.log"
 
@@ -279,7 +279,7 @@ show_hint() {
     echo "    cci inventory --format json       # JSON fuer AI-Agent"
     echo "    cci inventory --section os        # Nur OS-Sektion"
     echo "    cci inventory --section apps      # Nur Server-Apps"
-    echo "    cci --help                        # Verb-Uebersicht"
+    echo "    cci --help | cci -h               # Verb-Uebersicht"
     echo
     echo "→ Audit-Log dieses Bootstrap-Runs: ${FIRSTBOOT_LOG_FILE}"
     echo "    tail -50 ${FIRSTBOOT_LOG_FILE}"

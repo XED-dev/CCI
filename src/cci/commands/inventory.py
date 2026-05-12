@@ -195,9 +195,11 @@ def inventory_command(
     Sektionen: os, cc-suite, stack, databases, apps, all (Default).
 
     Beispiele:
-        cci inventory
-        cci inventory --section os
-        cci inventory --format json > /tmp/box.json
+
+        cci inventory                    # Komplette Inventur (Rich)
+        cci inventory --format json      # JSON fuer AI-Agent
+        cci inventory --section os       # Nur OS-Sektion
+        cci inventory --section apps     # Nur Server-Apps
     """
     report = _build_report()
 
