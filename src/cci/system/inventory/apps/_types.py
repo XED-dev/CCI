@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Literal, TypedDict
+
+
+AppMode = Literal["composer", "classic"]
 
 
 class AppInfo(TypedDict):
@@ -12,3 +15,4 @@ class AppInfo(TypedDict):
     version: str
     path: str
     config_file: str
+    mode: AppMode

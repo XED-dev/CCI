@@ -5,6 +5,45 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.0.3] — 2026-05-12
+
+### Hinzugefügt (TYPO3 Composer-Mode-Detection)
+
+- **`apps/typo3.py`: cci erkennt jetzt TYPO3-Sites im Composer-Mode (v11+).**
+  Bisher fand der TYPO3-Detector nur Classic-Mode-Sites (`typo3conf/
+  LocalConfiguration.php` unter `*/htdocs/` oder `*/`). Live-Use-Case auf
+  einer Multi-Site-Box mit TYPO3 v11+ Composer-Layout zeigte `apps: []`-
+  Inventur trotz vorhandener TYPO3-Installation (Web-Root in `<site>/
+  public/`, Project-Root mit `composer.json`).
+
+  **Erweiterung:** Composer-Mode-Detection ZUERST, Classic-Mode-Detection
+  als Backward-Compat-Fallback. Composer-Detection: Glob `*/composer.json`
+  + Filter auf `typo3/cms-core`-Dependency. Version-Extraktion in drei
+  Stufen: (a) `vendor/typo3/cms-core/Classes/Information/Typo3Version.php`
+  (Standard wenn `vendor/` installiert), (b) `composer.lock` mit
+  `packages[].name == typo3/cms-core` (Fallback wenn `vendor/` fehlt),
+  (c) `'unknown'`. Layout verifiziert via WebFetch docs.typo3.org.
+
+- **`_types.py`: neues Feld `mode: Literal["composer", "classic"]` in `AppInfo`.**
+  AI-Agent-Konsumtion: Composer-vs-Classic-Sicht für Fleet-weite Update-
+  Empfehlungen ohne config_file-Suffix-Parsing. Schema-Versionierung bleibt
+  `0.0.1` (additive Erweiterung, kein Breaking Change).
+
+### Tests
+
+- 13 neue Cases in `test_typo3.py` (3 für `_is_typo3_composer_project` +
+  3 für `_parse_typo3_version_from_lockfile` + 4 für `detect_typo3`
+  Composer-Mode + 1 Multi-Mode-Integration + 2 existing-Anpassungen mit
+  `mode`-Assert).
+
+### Pattern-Anker
+
+Live-Use-Case-Bug → Tool-Sprint > Workaround. Detection-Limit im Tool
+während heißer Anwendung sofort fixen, nicht in Backlog vertagen. Self-
+Heal-Loop zwischen Tool und realer Anwendung als Default, nicht Reaktion.
+
+[0.0.3]: https://github.com/XED-dev/CCI/releases/tag/v0.0.3
+
 ## [0.0.2] — 2026-05-09
 
 ### Fixed (PIPX_HOME-env-Drift)

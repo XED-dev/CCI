@@ -1,2 +1,2 @@
 """Version of xed-cci — single source of truth for hatchling-build."""
-__version__ = "0.0.2"
+__version__ = "0.0.3"
