@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>XED /CCI — cBOX@ /Container Inventur</title>
-<meta name="description" content="Read-Only-Tool für lokale cBOX-Inventur (OS, CC-Suite, Stack, Datenbanken, Server-Apps). Drittes Mitglied der XED /CC-Suite. MIT-lizenziert.">
+<meta name="description" content="Read-Only-Tool für lokale Box-Klassen-Inventur (OS, CC-Suite, Stack, Datenbanken, TYPO3-Sites). Drittes Mitglied der XED /CC-Suite. MIT-lizenziert.">
 <style>
   :root {
     --fg: #1a1a1a;
@@ -72,12 +72,12 @@
 <body>
 
 <h1>XED /CCI
-  <small>cBOX@ /Container Inventur · Read-Only-Tool für lokale cBOX-Inventur</small>
+  <small>cBOX@ /Container Inventur · Read-Only-Tool für Box-Klassen-Inventur</small>
 </h1>
 
 <p>
-  <span class="badge"><code>firstboot.sh</code> v0.0.1</span>
-  <span class="badge"><code>cci</code> v0.0.1</span>
+  <span class="badge"><code>firstboot.sh</code> v0.0.9</span>
+  <span class="badge"><code>cci</code> v0.0.9</span>
   <span class="badge">MIT</span>
   <span class="badge"><a href="https://github.com/XED-dev/CCI">GitHub</a></span>
   <span class="badge"><a href="https://pypi.org/project/xed-cci/">PyPI</a></span>
@@ -99,15 +99,28 @@ apt update &amp;&amp; apt install -y curl ca-certificates
 <span style="color:var(--muted)"># firstboot.sh ausführen (installiert pipx + xed-cci):</span>
 bash &lt;(curl -s https://cci.xed.dev/firstboot.sh)
 
-<span style="color:var(--muted)"># Inventur ausführen:</span>
-cci inventory                  <span style="color:var(--muted)"># Rich-Tabellen für Mensch</span>
-cci inventory --format json    <span style="color:var(--muted)"># JSON für AI-Agent</span></code></pre>
+<span style="color:var(--muted)"># Box-Klassen-Inventur ausführen (aktuell: typo3):</span>
+cci typo3                      <span style="color:var(--muted)"># Rich-Tabellen für Mensch</span>
+cci typo3 --format json        <span style="color:var(--muted)"># JSON für AI-Agent</span></code></pre>
 
 <p>Manuell (wenn pipx schon vorhanden):</p>
 
 <pre><code>pipx install xed-cci</code></pre>
 
-<h2>Was <code>cci inventory</code> liefert</h2>
+<h2>Box-Klassen (v0.0.9+)</h2>
+
+<table>
+  <thead>
+    <tr><th>Verb</th><th>Box-Klasse</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>cci typo3</code></td><td>WordOps-LEMP-Ubuntu-LTS + TYPO3-Composer + ADD-ONs (z.B. Apache Solr)</td></tr>
+  </tbody>
+</table>
+
+<p>Perspektivisch weitere Box-Klassen (<code>cci wordpress</code>, ...) als eigene Top-Level-Verben.</p>
+
+<h2>Was <code>cci typo3</code> liefert</h2>
 
 <table>
   <thead>
@@ -118,25 +131,27 @@ cci inventory --format json    <span style="color:var(--muted)"># JSON für AI-A
     <tr><td><code>cc-suite</code></td><td><code>pipx list --json</code></td><td>xed-ccc / xed-cca / xed-cci-Versionen</td></tr>
     <tr><td><code>stack</code></td><td><code>sys.version_info</code> + <code>shutil.which</code></td><td>python3 (immer) + php / node (Optional)</td></tr>
     <tr><td><code>databases</code></td><td><code>dpkg-query</code> + <code>systemctl is-active</code></td><td>mysql / mariadb / postgresql + Service-Status</td></tr>
-    <tr><td><code>apps</code></td><td><code>Path.glob</code> unter <code>/var/www/</code></td><td>Server-Apps mit Versionen (v0.0.1: Typo3-Detection)</td></tr>
+    <tr><td><code>sites</code></td><td><code>Path.iterdir</code> + <code>is_file</code> unter <code>/var/www/</code></td><td>TYPO3-Sites pro Domain mit Versionen + Modus (Composer/Classic)</td></tr>
   </tbody>
 </table>
 
 <h2>Verben</h2>
 
-<pre><code>cci inventory                       <span style="color:var(--muted)"># Komplette Inventur (Rich-Tabelle)</span>
-cci inventory --format json         <span style="color:var(--muted)"># JSON für AI-Agent-Konsumtion</span>
-cci inventory --section os          <span style="color:var(--muted)"># Nur OS-Sektion</span>
-cci inventory --section cc-suite    <span style="color:var(--muted)"># Nur CC-Suite-Versionen</span>
-cci inventory --section stack       <span style="color:var(--muted)"># Nur Programmier-Stacks</span>
-cci inventory --section databases   <span style="color:var(--muted)"># Nur Datenbank-Engines</span>
-cci inventory --section apps        <span style="color:var(--muted)"># Nur Server-Apps</span>
-cci --help                          <span style="color:var(--muted)"># Verb-Übersicht</span>
-cci --version                       <span style="color:var(--muted)"># Tool-Version</span></code></pre>
+<pre><code>cci typo3                          <span style="color:var(--muted)"># Komplette Inventur (Rich-Tabelle)</span>
+cci typo3 --format json            <span style="color:var(--muted)"># JSON für AI-Agent-Konsumtion</span>
+cci typo3 --format oneliner        <span style="color:var(--muted)"># 1-Zeile pipe-separated (Chat-Sharing)</span>
+cci typo3 --format text -o inv.txt <span style="color:var(--muted)"># Plain multi-line in Datei</span>
+cci typo3 --section os             <span style="color:var(--muted)"># Nur OS-Sektion</span>
+cci typo3 --section cc-suite       <span style="color:var(--muted)"># Nur CC-Suite-Versionen</span>
+cci typo3 --section stack          <span style="color:var(--muted)"># Nur Programmier-Stacks</span>
+cci typo3 --section databases      <span style="color:var(--muted)"># Nur Datenbank-Engines</span>
+cci typo3 --section sites          <span style="color:var(--muted)"># Nur TYPO3-Sites</span>
+cci --help                         <span style="color:var(--muted)"># Box-Klassen-Übersicht</span>
+cci --version                      <span style="color:var(--muted)"># Tool-Version</span></code></pre>
 
 <h2>Use-Case: AI-Agent-Konsultation</h2>
 
-<pre><code>cci inventory --format json &gt; /tmp/box.json
+<pre><code>cci typo3 --format json &gt; /tmp/box.json
 
 <span style="color:var(--muted)"># Dann an AI-Agent (Claude Code, ChatGPT, etc.):</span>
 <span style="color:var(--muted)"># &quot;Hier ist meine Box-Inventur. Passt diese Konfiguration für Typo3 v13?</span>
@@ -148,6 +163,14 @@ cci --version                       <span style="color:var(--muted)"># Tool-Vers
   <strong>ohne dass DevOps die Daten manuell zusammensuchen muss</strong>.
 </p>
 
+<h2>v0.0.9 BREAKING-Migration</h2>
+
+<ul>
+  <li><strong>Verb-Switch:</strong> <code>cci inventory</code> → <code>cci typo3</code> (hartgesetzt, kein Deprecation-Alias)</li>
+  <li><strong>Section-Rename:</strong> <code>--section apps</code> → <code>--section sites</code></li>
+  <li><strong>JSON-Schema 0.0.1 → 0.0.2:</strong> Top-Level-Key <code>"apps"</code> → <code>"sites"</code>. AI-Agent-Konsumenten und Skripte mit <code>report["apps"]</code> müssen auf <code>report["sites"]</code> umgestellt werden.</li>
+</ul>
+
 <h2>Drei-Phasen-Plan</h2>
 
 <table>
@@ -155,7 +178,7 @@ cci --version                       <span style="color:var(--muted)"># Tool-Vers
     <tr><th>Phase</th><th>Inhalt</th><th>Status</th></tr>
   </thead>
   <tbody>
-    <tr><td><strong>1</strong></td><td>Python-CLI Read-Only (<code>cci inventory</code>-Verb mit Rich + JSON)</td><td><strong>v0.0.1 live</strong></td></tr>
+    <tr><td><strong>1</strong></td><td>Python-CLI Read-Only mit Box-Klassen-Subkommandos (<code>cci typo3</code>, künftig <code>cci wordpress</code>)</td><td><strong>v0.0.9 live</strong></td></tr>
     <tr><td>2</td><td>DeltaChat-Bot-Daemon (dezentrale Box-Steuerung ohne Ports/TLS)</td><td>Vision (geplant)</td></tr>
     <tr><td>3</td><td>cBOX@ /Monitor (Master-Programm für 1000+ Boxen)</td><td>Vision (geplant)</td></tr>
   </tbody>
@@ -171,6 +194,7 @@ cci --version                       <span style="color:var(--muted)"># Tool-Vers
 
 <ul>
   <li><strong>100% Read-Only</strong> — strukturelle Garantie via subprocess-Whitelist + Lakmus-Test pro Helper</li>
+  <li><strong>Box-Klassen-Anker</strong> — keine generische Linux-Detection, pro Box-Klasse expliziter Pfad-/Werkzeug-Auswertungs-Code</li>
   <li><strong>Stack-Konsistenz</strong> mit ccc + cca — Python + Typer + Rich + pytest + pipx</li>
   <li><strong>Stdlib-Idiomatik bevorzugt</strong> — <code>platform.freedesktop_os_release</code>, <code>os.uname</code>, <code>sys.version_info</code>, <code>pathlib.Path</code> wo möglich</li>
   <li><strong>JSON-Schema-Versionierung</strong> — Backward-Compat-Disziplin für AI-Agent-Konsumenten</li>

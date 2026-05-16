@@ -5,6 +5,138 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.0.9] — 2026-05-15
+
+### ⚠ BREAKING — Architektur-Neufundierung auf Box-Klassen
+
+cci adressiert ab v0.0.9 eine eingegrenzte Box-Klasse über verb-basierte
+Subkommandos. Das vormals generische `cci inventory`-Verb ist hart
+entfernt (keine Deprecation-Alias-Phase — v0.0.x-SemVer „Kindergarten"
+signalisiert Architektur-Instabilität, klare Migration in einem Schritt).
+
+**Konsumenten-Migration:**
+
+| Alt (v0.0.8) | Neu (v0.0.9) |
+|---|---|
+| `cci inventory` | `cci typo3` |
+| `cci inventory --section apps` | `cci typo3 --section sites` |
+| `cci inventory --section os` (sonstige Sections unverändert) | `cci typo3 --section os` |
+| `cci inventory --format json` | `cci typo3 --format json` |
+| `report["apps"]` im JSON | `report["sites"]` im JSON |
+
+**JSON-Schema-Bump 0.0.1 → 0.0.2:** Top-Level-Key `apps` → `sites`.
+AI-Agent-Konsumenten und Skripte mit `report["apps"]` müssen auf
+`report["sites"]` umgestellt werden. Detector-Layer-Code (`AppInfo` +
+`collect_apps_info()` + `system/inventory/apps/`) bleibt namentlich
+unverändert — Section-Naming folgt Output-Domain (TYPO3-Site),
+Detector-Naming folgt Implementation-Domain (Server-Apps).
+
+### Behoben (Sub-Sprint A — `apps:[]`-Wurzel-Fix v0.0.8 Live-Failure)
+
+- **`apps/typo3.py`: `pathlib.glob()` → explizite Pfad-Auswertung via
+  `iterdir()` + `is_file()`.**
+  v0.0.8 nutzte `_VAR_WWW.glob("*/current/composer.json")` für die
+  Deployer-Layout-Detection. Python 3.10 `pathlib.Path.glob()` ist mit
+  intermediate relativem Symlink (deployer.org-Standard
+  `current → releases/<N>/`) unzuverlässig — Live-Failure auf osU2404
+  zeigte `apps:(none)` trotz installierter TYPO3-Site
+  (preprod.scheucherparkett.com mit Deployer-Layout). pytest 83/83
+  grün, weil die Tests `symlink_to(target, target_is_directory=True)`
+  mit absoluten Pfaden nutzten — die echte Live-Bedingung (relativer
+  Symlink) wurde nicht reproduziert.
+
+  **Refactor:** Vier Layout-Patterns (Top-Level + Deployer + typo3-base
+  + typo3-base+Deployer) auf zwei explizite Pfad-Tests pro
+  Site-Verzeichnis aufgelöst:
+  - `<site>/composer.json` (Mainstream)
+  - `<site>/current/composer.json` (Deployer — `is_file()` folgt
+    relative + absolute Symlinks deterministisch)
+
+  Zwei Iterations-Ebenen: direkte Sites unter `/var/www/<site>/`,
+  zusätzlich `typo3/`-Konvention `/var/www/typo3/<sub-site>/`.
+
+  Plus neue Helper `_safe_is_file()` + `_safe_is_dir()` mit
+  PermissionError-Defense (Workstation-Realität: `/var/www/html/`-
+  Apache-Standard für non-www-data-User nicht lesbar).
+
+### Geändert (Sub-Sprint G — CLI-Verb-Switch + Section-Rename + Schema-Bump)
+
+- **CLI-Verb-Switch `cci inventory` → `cci typo3`.**
+  v0.0.8 hatte ein generisches `inventory`-Verb. v0.0.9 stellt um auf
+  verb-basierte Box-Klassen-Subkommandos: `cci typo3` adressiert
+  WordOps-LEMP-Ubuntu-LTS-Box mit TYPO3-Composer + ADD-ONs (z.B.
+  Apache Solr). Künftige Box-Klassen (`cci wordpress`, …) als weitere
+  Top-Level-Verben analog.
+
+- **Section-Rename `apps` → `sites`.**
+  `Section.APPS = "apps"` → `Section.SITES = "sites"`. JSON-Output-Key
+  `report["apps"]` → `report["sites"]`. Render-Funktion `_render_apps()`
+  → `_render_sites()` mit Tabellen-Titel "Sites" (vormals
+  "Server-Apps"). Detector-Layer (`AppInfo` + `collect_apps_info` +
+  `system/inventory/apps/`) bleibt unverändert — Output-Aggregation und
+  Implementation sind getrennte Naming-Layers.
+
+- **`cci -h` Top-Level-Hilfe substantiell erweitert.**
+  Box-Klassen-Übersicht mit Kurzbeschreibung + Beispiel-Subkommandos +
+  Output-Format-Beispiele direkt im `cci --help`-Output. Werkzeug-First:
+  eine autoritative Hilfe-Quelle, die `firstboot.sh` direkt aufruft
+  (Sub-Sprint H).
+
+- **JSON-Schema 0.0.1 → 0.0.2** (BREAKING-Bump, siehe oben).
+
+### Geändert (Sub-Sprint H — firstboot.sh Werkzeug-First)
+
+- **`docs/firstboot.sh`: statischer Hint-Block durch `cci -h`-Aufruf
+  ersetzt.**
+  v0.0.7-v0.0.8 hatten den Phase-4-Hint-Block als statisches
+  Bash-Echo-Konstrukt. v0.0.9 ruft `${PIPX_BIN_DIR_PATH}/cci -h` direkt
+  auf — eine Pflege-Stelle statt parallel-gepflegter Hilfe.
+
+- **firstboot.sh-VERSION-Konstante 0.0.7 → 0.0.9** (Tool-Version-Sync).
+
+### Tests
+
+- 3 neue Cases in `test_typo3.py` für die echte Live-Repro:
+  - Case 27: Deployer-Layout mit RELATIVEM `current → releases/N`-Symlink
+  - Case 28: Dangling current-Symlink — kein Crash, kein False-Positive
+  - Case 29: typo3-base + Deployer mit relativem Symlink kombiniert
+
+- 2 neue Cases in `test_cli.py`:
+  - `test_help_shows_box_classes_overview` (Box-Klassen-Übersicht in `cci -h`)
+  - `test_typo3_section_sites_runs` (Section-Rename `apps` → `sites`)
+
+- Section-Filter-Tests in `test_inventory.py` durchgängig von
+  `inventory`-Verb auf `typo3`-Verb und von `apps`-Key auf `sites`-Key
+  umgestellt.
+
+- 88/88 pytest grün auf der Workstation (vormals 83/83 in v0.0.8).
+
+### Pattern-Anker
+
+Architektur-Neufundierung auf Box-Klassen (DevOps-Direktive 2026-05-13
+Abend + AI045-Senior-Sweep 2026-05-15): cci adressiert eingegrenzte
+Box-Klassen, nicht generische Linux-Inventur. Pfade und Werkzeuge sind
+bekannt, nicht zu detecten. Pattern-Anker: Section-Naming folgt
+Output-Domain (TYPO3-Site), Detector-Naming folgt Implementation-Domain
+(Server-Apps) — beide Konventionen koexistieren bewusst.
+
+Verify-First-Disziplin (AI043-OFF §5 Q3): pytest grün ≠ Sprint-Erfolg.
+Live-Acceptance auf der Ziel-Box auf allen drei Install-Pfaden (pip-dist
++ Pages-CDN + PyPI-Curl-Install) ist Pre-Condition für Tag/Release.
+v0.0.8-Asche: PyPI-Tag vor Live-Verify gesetzt, `apps:[]`-Bug-Fix
+wirkte nicht live. v0.0.9 setzt Tag nur nach Stage-1-grün (lokaler
+whl-Install auf osU2404 mit Acceptance `cci typo3 --section sites`
+zeigt typo3 + Pfad).
+
+PermissionError-Defense für pathlib-stat-Operationen: `_safe_is_file()`
++ `_safe_is_dir()` Helper sind robust gegen Workstation-Realität
+(eingeschränkte Permissions auf `/var/www/html/`-Standard-Apache-
+Verzeichnis für non-www-data-User). Live-Use auf root ist nicht der
+einzige Anwendungsfall — Tests müssen Workstation-Permissions auch
+passieren.
+
+[0.0.9]: https://github.com/XED-dev/CCI/releases/tag/v0.0.9
+
 ## [0.0.8] — 2026-05-13
 
 ### Behoben + Hinzugefügt (Deployer-Layout + Output-Formate für SysOps-Praxis)

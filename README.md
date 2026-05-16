@@ -1,22 +1,33 @@
 # XED /CCI — cBOX@ /Container Inventur
 
-> Read-Only-Tool für lokale cBOX-Inventur. Drittes Mitglied der XED /CC-Suite
+> Read-Only-Tool für lokale Box-Klassen-Inventur. Drittes Mitglied der XED /CC-Suite
 > neben [ccc](../XED-CCC/) (Control) und [cca](../XED-CCA/) (App-Installation).
 
 **100% Read-Only:** cci verändert NIEMALS den Box-Zustand. Strukturelle
 Garantie via subprocess-Whitelist.
 
-## Was es macht (Phase 1)
+## Was es macht (Phase 1, v0.0.9+)
 
-`cci inventory` liefert eine vollständige Inventur der lokalen Box als
-Rich-Tabelle (Mensch) oder JSON (AI-Agent).
+`cci typo3` liefert eine vollständige Inventur einer WordOps-LEMP-Ubuntu-LTS-Box
+mit TYPO3-Composer + optional Apache Solr — als Rich-Tabelle (Mensch) oder JSON
+(AI-Agent-Konsumtion).
 
 **Sektionen:**
 - **OS** — `/etc/os-release` + Kernel
 - **CC-Suite** — installed `xed-ccc` / `xed-cca` / `xed-cci`-Versionen
 - **Stack** — `python3` / `php` / `node` Versionen (wenn installiert)
 - **Databases** — `mysql` / `mariadb` / `postgres` Versionen + Service-Status
-- **Apps** — Server-Apps mit Pfaden + Versionen (v0.0.1: Typo3-Detection)
+- **Sites** — TYPO3-Sites pro Domain mit Pfaden + Versionen + Modus
+
+## Box-Klassen
+
+Verb-basierte Subkommandos pro Box-Klasse:
+
+| Verb | Box-Klasse |
+|---|---|
+| `cci typo3` | WordOps-LEMP-Ubuntu-LTS + TYPO3-Composer + ADD-ONs (z.B. Apache Solr) |
+
+Perspektivisch weitere Box-Klassen (`cci wordpress`, ...) als eigene Top-Level-Verben.
 
 ## Installation
 
@@ -38,19 +49,23 @@ pipx install xed-cci
 
 ```bash
 # Komplette Inventur als Rich-Tabelle
-cci inventory
+cci typo3
 
 # JSON für AI-Agent-Konsumtion
-cci inventory --format json
+cci typo3 --format json
 
 # Gefilterte Sektion
-cci inventory --section os
-cci inventory --section apps
-cci inventory --section stack
-cci inventory --section databases
-cci inventory --section cc-suite
+cci typo3 --section os
+cci typo3 --section sites
+cci typo3 --section stack
+cci typo3 --section databases
+cci typo3 --section cc-suite
 
-# Verb-Übersicht
+# Output-Formate
+cci typo3 --format oneliner              # 1-Zeile pipe-separated (Chat-Sharing)
+cci typo3 --format text -o /tmp/inv.txt  # Plain multi-line in Datei
+
+# Box-Klassen-Übersicht
 cci --help
 
 # Tool-Version
@@ -60,7 +75,7 @@ cci --version
 ## Use-Case: AI-Agent-Konsultation
 
 ```bash
-cci inventory --format json > /tmp/box.json
+cci typo3 --format json > /tmp/box.json
 
 # Dann an AI-Agent (Claude Code, ChatGPT, etc.):
 # "Hier ist meine Box-Inventur. Passt diese Konfiguration für Typo3 v13?
@@ -70,20 +85,30 @@ cci inventory --format json > /tmp/box.json
 Der AI-Agent sieht in einem strukturierten JSON-Block alle relevanten
 Box-Daten und kann fundierte Migrations-/Update-Empfehlungen geben.
 
+## v0.0.9 BREAKING-Migration
+
+- **Verb-Switch:** `cci inventory` → `cci typo3` (hartgesetzt, kein Deprecation-Alias).
+- **Section-Rename:** `--section apps` → `--section sites`.
+- **JSON-Schema 0.0.1 → 0.0.2:** Top-Level-Key `"apps"` → `"sites"`. AI-Agent-
+  Konsumenten und Skripte mit `report["apps"]` müssen auf `report["sites"]`
+  umgestellt werden. Detector-Layer-Code (`AppInfo` + `collect_apps_info`) bleibt
+  unverändert.
+
+Siehe [CHANGELOG.md](./CHANGELOG.md) für vollständige BREAKING-Liste + Verb-Mapping.
+
 ## Roadmap
 
-- **Phase 1 (jetzt):** Python-CLI mit `cci inventory`-Verb (read-only,
-  pipx-Distribution, ccc/cca-Pattern-Symmetrie). Erste App-Detection für
-  Typo3.
+- **Phase 1 (jetzt):** Python-CLI mit Box-Klassen-Subkommandos (`cci typo3`,
+  perspektivisch `cci wordpress` u.a.), read-only, pipx-Distribution,
+  ccc/cca-Pattern-Symmetrie.
 - **Phase 2 (Vision):** DeltaChat-Bot-Daemon für dezentrale Box-Steuerung
-  ohne offene Ports + TLS-Cert-Management. Siehe
-  [WHITEPAPER.md §Phase 2](./WHITEPAPER.md#phase-2--deltachat-bot-daemon-visionmission-nicht-für-phase-1-umsetzen).
+  ohne offene Ports + TLS-Cert-Management.
 - **Phase 3 (Vision):** cBOX@ /Monitor Master-Programm für Inventur-
-  Aggregation über tausende cBOX@ /CUBE-Boxen. Siehe
-  [WHITEPAPER.md §Phase 3](./WHITEPAPER.md#phase-3--cbox-monitor-visionmission-nicht-für-phase-12-umsetzen).
+  Aggregation über tausende cBOX@ /CUBE-Boxen.
 
-Volle Architektur-Entscheidungsfindung + Vision/Mission siehe
-[WHITEPAPER.md](./WHITEPAPER.md).
+Detaillierte Architektur-Entscheidungsfindung + Vision/Mission kommt
+zukünftig in das [Github Wiki](https://github.com/XED-dev/CCI/wiki)
+und/oder ins [Collective-Context-Forum](https://collective-context.org/).
 
 ## Lizenz
 

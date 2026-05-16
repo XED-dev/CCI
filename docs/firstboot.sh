@@ -1,5 +1,5 @@
 #!/bin/bash
-# firstboot.sh v0.0.7 — XED /CCI cBOX@ /Container Inventur Bootstrap
+# firstboot.sh v0.0.9 — XED /CCI cBOX@ /Container Inventur Bootstrap
 #
 # Quelle:    https://github.com/XED-dev/CCI
 # Aufruf:    bash <(curl -s https://cci.xed.dev/firstboot.sh)
@@ -11,7 +11,9 @@
 #   Phase 2   — pipx install xed-cci mit Version-Pin (latest from PyPI)
 #   Phase 2.5 — Version-Verify-Edge-Cases mit User-Agency (SS7)
 #   Phase 3   — PATH-Fix (pct-enter-Falle)
-#   Phase 4   — Hint-Block (cci inventory-Verben)
+#   Phase 4   — Direkter `cci -h`-Aufruf als finale Hilfe-Anzeige
+#               (Werkzeug-First — eine autoritative Quelle statt
+#               parallel-gepflegter statischer Hint-Block, v0.0.9)
 #
 # cci ist Read-Only — KEIN bootstrap-system-Verb wie ccc/cca, KEIN
 # apply-Phase. firstboot.sh ist „install + verify + first-run-info" minimal.
@@ -23,7 +25,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # === Globals ===
 
-VERSION="0.0.7"
+VERSION="0.0.9"
 SCRIPT_NAME="firstboot.sh"
 FIRSTBOOT_LOG_FILE="/var/log/xed-cci.log"
 
@@ -269,22 +271,16 @@ EOF
     ok "PATH-Fix gesetzt (/etc/profile.d + /etc/bash.bashrc)."
 }
 
-# === Phase 4 — Hint-Block (Wartungs-Pfad sichtbar machen) ===
+# === Phase 4 — Direkter `cci -h`-Aufruf als finale Hilfe-Anzeige ===
 
+# Werkzeug-First (v0.0.9): cci's eigene `-h`-Hilfe ist die autoritative
+# Quelle für Box-Klassen-Uebersicht + Beispiele + Optionen. firstboot.sh
+# zeigt sie direkt am Ende — eine Pflege-Stelle statt parallel-gepflegter
+# statischer Hint-Block in Bash. Voraussetzung: `cci -h` ist substantiell
+# (cli.py Top-Level-Docstring mit Box-Klassen-Liste + Beispielen).
 show_hint() {
     echo
-    echo "╭─ Options ────────────────────────────────────────────────────────╮"
-    echo "│   --version  -v        Zeige Version und beende.                 │"
-    echo "│   --help     -h        Hilfe anzeigen und beenden.               │"
-    echo "╰──────────────────────────────────────────────────────────────────╯"
-    echo
-    echo "╭─ inventory Commands ─ Box-Inventur als Rich-Tabelle oder JSON. ──╮"
-    echo "│   cci inventory                    # Komplette Inventur (Rich)   │"
-    echo "│   cci inventory --format json      # JSON fuer AI-Agent          │"
-    echo "│   cci inventory --section os       # Nur OS-Sektion              │"
-    echo "│   cci inventory --section apps     # Nur Server-Apps             │"
-    echo "│   cci --help | cci -h              # Verb-Uebersicht             │"
-    echo "╰──────────────────────────────────────────────────────────────────╯"
+    "${PIPX_BIN_DIR_PATH}/cci" -h
     echo
     echo "→ Audit-Log dieses Bootstrap-Runs: ${FIRSTBOOT_LOG_FILE}"
     echo "    tail -50 ${FIRSTBOOT_LOG_FILE}"

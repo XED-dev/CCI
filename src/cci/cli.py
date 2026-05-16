@@ -1,12 +1,17 @@
-"""xed-cci CLI — Typer-basiertes Read-Only-Inventur-Tool.
+"""xed-cci CLI — Box-Klassen-Inventur-Tool (Typer-basiert).
+
+v0.0.9 — Architektur-Pivot auf eingegrenzte Box-Klassen:
+- `cci typo3` ersetzt `cci inventory` (Verb-basiert nach Box-Klasse)
+- Aktuell unterstützte Box-Klasse: typo3 (WordOps-LEMP-Ubuntu-LTS +
+  TYPO3-Composer + optional Solr-ADD-ON)
+- Perspektivisch: weitere Box-Klassen (`cci wordpress`, ...) als
+  eigene Top-Level-Verben
 
 Designprinzipien (siehe WHITEPAPER §Vision + §Mission Statement):
 - 100% Read-Only: cci verändert NIEMALS den Box-Zustand
 - Stack-Konsistenz mit ccc + cca (Typer + Rich + pytest + pipx)
-- AI-Agent-Konsumtion via JSON-Output
-
-Phase-1-Verben (v0.0.1+):
-- inventory: komplette Box-Inventur (Rich-Tabelle oder JSON)
+- AI-Agent-Konsumtion via JSON-Output (Schema 0.0.2 — Top-Level-Key
+  `sites` statt vormals `apps`, BREAKING-Change v0.0.9)
 
 Phase 2 (DeltaChat-Bot) + Phase 3 (cBOX@ /Monitor) sind Vision/Mission,
 NICHT in Phase 1 umgesetzt.
@@ -25,11 +30,20 @@ from cci.commands.inventory import inventory_command
 
 app = typer.Typer(
     name="cci",
-    help="cBOX@ /Container Inventur — Read-Only-Tool für lokale Box-Inventur.\n\n"
-    "Liefert OS, CC-Suite-Versionen, Stacks, Datenbanken und Server-Apps\n"
-    "als Rich-Tabelle (Mensch) oder JSON (AI-Agent-Konsumtion).\n\n"
-    "100% Read-Only: cci verändert NIEMALS den Box-Zustand.\n\n"
-    "cBOX.at/YOU by XED.dev Tools via Collective Context (CC).",
+    help=(
+        "cBOX@ /Container Inventur — Read-Only-Tool für Box-Klassen-Inventur.\n\n"
+        "Box-Klassen (verb-basierte Subkommandos):\n"
+        "  typo3   WordOps-LEMP-Ubuntu-LTS + TYPO3-Composer + ADD-ONs (z.B. Apache Solr)\n\n"
+        "Beispiele:\n"
+        "  cci typo3                                  Komplette Box-Inventur (Rich)\n"
+        "  cci typo3 --format json                    JSON für AI-Agent-Konsumtion\n"
+        "  cci typo3 --section sites                  Nur TYPO3-Sites pro Domain\n"
+        "  cci typo3 --section os                     Nur OS-Sektion\n"
+        "  cci typo3 --format oneliner                1-Zeile copy-paste\n"
+        "  cci typo3 --format text -o /tmp/inv.txt    Multi-line in Datei schreiben\n\n"
+        "100% Read-Only: cci verändert NIEMALS den Box-Zustand.\n\n"
+        "cBOX.at/YOU by XED.dev Tools via Collective Context (CC)."
+    ),
     no_args_is_help=True,
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -64,8 +78,11 @@ def main_callback(
     """xed-cci Top-Level-Callback. Lädt globale Optionen wie --version."""
 
 
-# inventory-Verb (SS5: Composition + Rich + JSON-Output + --section-Filter)
-app.command("inventory")(inventory_command)
+# Box-Klassen-Verb `typo3` — WordOps-LEMP-Ubuntu-LTS + TYPO3-Composer + optional Solr.
+# v0.0.9-Architektur-Pivot: Verb-basiert nach Box-Klasse statt generischem
+# `inventory`-Verb. Weitere Box-Klassen (`cci wordpress`, ...) als künftige
+# Top-Level-Verben analog.
+app.command("typo3")(inventory_command)
 
 
 def main() -> None:

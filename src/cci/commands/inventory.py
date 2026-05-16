@@ -1,15 +1,23 @@
-"""inventory — cci inventory-Verb (Composition + Rich + JSON + --section).
+"""inventory — Box-Klassen-Inventur-Implementation für cci typo3.
 
 Composition über die fünf Inventur-Sektionen (os/cc-suite/stack/databases/
-apps). Output entweder Rich-Tabelle (Mensch) oder JSON (AI-Agent-Konsumtion).
+sites). Output entweder Rich-Tabelle (Mensch) oder JSON (AI-Agent-
+Konsumtion). CLI-Verb seit v0.0.9: `cci typo3` (vormals `cci inventory`,
+Architektur-Pivot auf Box-Klassen-Subkommandos — siehe `cli.py`).
 
 Pattern-Anker für Composition:
 - InventoryReport TypedDict matcht WHITEPAPER §JSON-Schema 1:1
 - Rich für Mensch / json.dumps für AI-Agent
-- --section-Filter mit enum-Choices (os/cc-suite/stack/databases/apps/all)
+- --section-Filter mit enum-Choices (os/cc-suite/stack/databases/sites/all)
 - datetime.now(timezone.utc).isoformat — KEIN deprecated utcnow()
 - socket.gethostname() — KEIN subprocess hostname
 - _SCHEMA_VERSION als Konstante (Single-Source-of-Truth)
+
+v0.0.9-Schema-Bump 0.0.1 → 0.0.2:
+- Top-Level-Key `apps` → `sites` (Output-Aggregations-Layer-Konvention)
+- Detector-Layer-Code (`system/inventory/apps/*` + AppInfo) bleibt
+  unverändert — Section-Naming folgt Box-Klassen-Output-Domain,
+  Detector-Naming folgt Implementation-Domain.
 
 Stdlib-Reflex maximiert: keine subprocess-Aufrufe in dieser Datei
 (Composition + Output-Rendering nur).
@@ -34,11 +42,16 @@ from cci.system.inventory.databases import DatabaseInfo, collect_databases_info
 from cci.system.inventory.os import OSInfo, collect_os_info
 from cci.system.inventory.stack import StackInfo, collect_stack_info
 
-_SCHEMA_VERSION = "0.0.1"
+_SCHEMA_VERSION = "0.0.2"
 
 
 class InventoryReport(TypedDict):
-    """Vollständige Inventur-Composition matching WHITEPAPER §JSON-Schema."""
+    """Vollständige Inventur-Composition matching WHITEPAPER §JSON-Schema.
+
+    v0.0.9: Top-Level-Key `apps` → `sites` (BREAKING — siehe Schema-Bump
+    0.0.1 → 0.0.2). Inhalt unverändert — Liste von AppInfo-Records,
+    aber unter neuem Aggregations-Layer-Namen.
+    """
 
     schema_version: str
     timestamp: str
@@ -47,18 +60,22 @@ class InventoryReport(TypedDict):
     cc_suite: CCSuiteInfo
     stack: StackInfo
     databases: list[DatabaseInfo]
-    apps: list[AppInfo]
+    sites: list[AppInfo]
 
 
 class Section(str, Enum):
-    """Erlaubte --section-Werte (Typer-Choices)."""
+    """Erlaubte --section-Werte (Typer-Choices).
+
+    v0.0.9: `APPS = "apps"` → `SITES = "sites"` (Box-Klassen-Aggregations-
+    Layer-Naming).
+    """
 
     ALL = "all"
     OS = "os"
     CC_SUITE = "cc-suite"
     STACK = "stack"
     DATABASES = "databases"
-    APPS = "apps"
+    SITES = "sites"
 
 
 def _utc_timestamp() -> str:
@@ -71,7 +88,12 @@ def _utc_timestamp() -> str:
 
 
 def _build_report() -> InventoryReport:
-    """Baue komplette InventoryReport via Composition aller collect_X_info()."""
+    """Baue komplette InventoryReport via Composition aller collect_X_info().
+
+    Detector-Layer-Helper `collect_apps_info()` liefert weiterhin
+    `list[AppInfo]` — wird hier unter `sites`-Key gebündelt (Section-
+    Output-Konvention, Detector-Naming bleibt für Implementation-Klarheit).
+    """
     return InventoryReport(
         schema_version=_SCHEMA_VERSION,
         timestamp=_utc_timestamp(),
@@ -80,7 +102,7 @@ def _build_report() -> InventoryReport:
         cc_suite=collect_cc_suite_info(),
         stack=collect_stack_info(),
         databases=collect_databases_info(),
-        apps=collect_apps_info(),
+        sites=collect_apps_info(),
     )
 
 
@@ -114,8 +136,8 @@ def _render_rich(console: Console, report: InventoryReport, section: Section) ->
         _render_stack(console, report["stack"])
     if section in (Section.ALL, Section.DATABASES):
         _render_databases(console, report["databases"])
-    if section in (Section.ALL, Section.APPS):
-        _render_apps(console, report["apps"])
+    if section in (Section.ALL, Section.SITES):
+        _render_sites(console, report["sites"])
 
     if section is Section.ALL:
         console.print(
@@ -165,15 +187,20 @@ def _render_databases(console: Console, dbs: list[DatabaseInfo]) -> None:
     console.print(table)
 
 
-def _render_apps(console: Console, apps: list[AppInfo]) -> None:
-    table = Table(title="Server-Apps", show_header=True, header_style="bold cyan")
+def _render_sites(console: Console, sites: list[AppInfo]) -> None:
+    """Render Sites-Sektion (TYPO3-Site-Layer pro Domain).
+
+    v0.0.9: vormals `_render_apps()` — umbenannt zu Section-Aggregations-
+    Naming. Datenstruktur (`AppInfo` aus Detector-Layer) bleibt unverändert.
+    """
+    table = Table(title="Sites", show_header=True, header_style="bold cyan")
     table.add_column("Name")
     table.add_column("Version")
     table.add_column("Path")
-    if not apps:
+    if not sites:
         table.add_row("[dim](none)[/dim]", "", "")
-    for app in apps:
-        table.add_row(app["name"], app["version"], app["path"])
+    for site in sites:
+        table.add_row(site["name"], site["version"], site["path"])
     console.print(table)
 
 
@@ -184,10 +211,10 @@ def _render_oneliner(report: InventoryReport, section: Section) -> str:
     Comma-separated. Header (schema/host/timestamp) immer drin für Kontext.
 
     Beispiel-Output (alle Sektionen):
-        schema:0.0.1|host:osU2404|timestamp:...|os:Ubuntu-22.04.5-LTS|
-        kernel:5.4.203-1-pve|cc-suite:ccc-0.2.3,cca-0.0.5,cci-0.0.8|
+        schema:0.0.2|host:osU2404|timestamp:...|os:Ubuntu-22.04.5-LTS|
+        kernel:5.4.203-1-pve|cc-suite:ccc-0.2.3,cca-0.0.5,cci-0.0.9|
         stack:py-3.10.12,php-8.4.21|databases:mariadb-10.6.23(active)|
-        apps:typo3-13.4.1@/var/www/site/(composer.json,composer-mode)
+        sites:typo3-13.4.1@/var/www/site/(composer.json,composer-mode)
     """
     parts: list[str] = [
         f"schema:{report['schema_version']}",
@@ -230,16 +257,16 @@ def _render_oneliner(report: InventoryReport, section: Section) -> str:
         else:
             parts.append("databases:(none)")
 
-    if section in (Section.ALL, Section.APPS):
-        if report["apps"]:
-            app_items = [
-                f"{app['name']}-{app['version']}@{app['path']}"
-                f"({app['config_file']},{app['mode']}-mode)"
-                for app in report["apps"]
+    if section in (Section.ALL, Section.SITES):
+        if report["sites"]:
+            site_items = [
+                f"{site['name']}-{site['version']}@{site['path']}"
+                f"({site['config_file']},{site['mode']}-mode)"
+                for site in report["sites"]
             ]
-            parts.append(f"apps:{','.join(app_items)}")
+            parts.append(f"sites:{','.join(site_items)}")
         else:
-            parts.append("apps:(none)")
+            parts.append("sites:(none)")
 
     return "|".join(parts)
 
@@ -248,7 +275,7 @@ def _render_text(report: InventoryReport, section: Section) -> str:
     """Plain multi-line Text (kein Rich-Markup) für File-Output + cat.
 
     Sektional mit [Section]-Headern und key=value-Lines (INI-artig).
-    Geeignet für `cci inventory --format text --output inv.txt` + `cat inv.txt`.
+    Geeignet für `cci typo3 --format text --output inv.txt` + `cat inv.txt`.
     """
     lines: list[str] = [
         f"# cci inventory — schema {report['schema_version']}",
@@ -288,15 +315,15 @@ def _render_text(report: InventoryReport, section: Section) -> str:
             lines.append(f"  {db['engine']} = {db['version']} ({active})")
         lines.append("")
 
-    if section in (Section.ALL, Section.APPS):
-        lines.append("[Server-Apps]")
-        if not report["apps"]:
+    if section in (Section.ALL, Section.SITES):
+        lines.append("[Sites]")
+        if not report["sites"]:
             lines.append("  (none)")
-        for app in report["apps"]:
-            lines.append(f"  {app['name']} {app['version']}")
-            lines.append(f"    path   = {app['path']}")
-            lines.append(f"    config = {app['config_file']}")
-            lines.append(f"    mode   = {app['mode']}")
+        for site in report["sites"]:
+            lines.append(f"  {site['name']} {site['version']}")
+            lines.append(f"    path   = {site['path']}")
+            lines.append(f"    config = {site['config_file']}")
+            lines.append(f"    mode   = {site['mode']}")
         lines.append("")
 
     return "\n".join(lines)
@@ -324,9 +351,9 @@ def inventory_command(
 ) -> None:
     """Box-Inventur als Rich-Tabelle, JSON, One-Liner oder Plain-Text.
 
-    Sektionen: os, cc-suite, stack, databases, apps, all (Default).
+    Sektionen: os, cc-suite, stack, databases, sites, all (Default).
 
-    Formate (v0.0.8):
+    Formate (v0.0.8 + v0.0.9):
 
         rich     — Rich-Tabellen für Mensch (Default)
         json     — AI-Agent-Konsumtion (Indent 2)
@@ -335,11 +362,12 @@ def inventory_command(
 
     Beispiele:
 
-        cci inventory                                # Komplette Inventur (Rich)
-        cci inventory --format json                  # JSON fuer AI-Agent
-        cci inventory --section os                   # Nur OS-Sektion
-        cci inventory --format oneliner              # 1-Zeile copy-paste
-        cci inventory --format text -o /tmp/inv.txt  # In Datei schreiben
+        cci typo3                                # Komplette Inventur (Rich)
+        cci typo3 --format json                  # JSON für AI-Agent
+        cci typo3 --section os                   # Nur OS-Sektion
+        cci typo3 --section sites                # Nur TYPO3-Sites
+        cci typo3 --format oneliner              # 1-Zeile copy-paste
+        cci typo3 --format text -o /tmp/inv.txt  # In Datei schreiben
     """
     report = _build_report()
     fmt = output_format.lower()

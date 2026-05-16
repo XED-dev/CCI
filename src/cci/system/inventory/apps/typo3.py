@@ -9,11 +9,11 @@ Stdlib-only via pathlib + json:
 Strukturell noch Read-Only-er als safe_run-subprocess: kein Whitelist-
 Bypass möglich, weil keine subprocess-Calls.
 
-Detection-Strategie — zwei TYPO3-Layout-Klassen (Composer hat 4 Sub-Patterns):
+Detection-Strategie — zwei TYPO3-Layout-Klassen (Composer hat 4 Layouts):
 
 1. **Composer-Mode (TYPO3 v11+ Standard):** Project-Root mit
    `composer.json` (mit `typo3/cms-core` in `require`), Vendor in
-   `vendor/typo3/cms-core/`. Vier Sub-Patterns (v0.0.8):
+   `vendor/typo3/cms-core/`. Vier Layouts:
 
    a) **Top-Level:** `<site>/composer.json` — Mainstream-Composer-Mode
    b) **Deployer-Style:** `<site>/current/composer.json` — atomic
@@ -23,8 +23,17 @@ Detection-Strategie — zwei TYPO3-Layout-Klassen (Composer hat 4 Sub-Patterns):
    d) **Kombiniert:** `typo3/<site>/current/composer.json` — typo3-base
       + Deployer-Layout
 
+   v0.0.9-Refactor: `pathlib.Path.glob()` ersetzt durch explizite Pfad-
+   Auswertung via `iterdir()` + `is_file()` / `is_dir()`. Wurzel: Python
+   3.10 `glob()` ist mit intermediate relativem Symlink (deployer.org
+   `current → releases/<N>/`) unzuverlässig — Live-Failure auf osU2404
+   trotz pytest grün (Tests nutzten absolute Symlinks via `symlink_to(
+   target, target_is_directory=True)` und reproduzierten die Live-
+   Bedingung nicht). `is_file()` folgt Symlinks deterministisch (relativ
+   + absolut), `iterdir()` listet Dir-Einträge ohne Glob-Semantik.
+
    Layout verifiziert via WebFetch docs.typo3.org 2026-05-12 + deployer.org
-   TYPO3-Recipe 2026-05-13. Site-Root-Resolution strippe „current/"
+   TYPO3-Recipe 2026-05-13. Site-Root-Resolution strippt „current/"
    Komponente bei Deployer (logischer Site-Root ist Parent von current/).
 
 2. **Classic-Mode (TYPO3 ≤ v10 + Legacy v11):** Web-Root mit
@@ -52,18 +61,11 @@ from cci.system.inventory.apps._types import AppInfo
 _VAR_WWW = Path("/var/www")
 
 # Composer-Mode (TYPO3 v11+): composer.json an Project-Root.
-# Vier Sub-Layout-Patterns unterstützt (v0.0.8 — deployer.org TYPO3-
-# Recipe + DevOps-WordOps-Konvention):
-#   1. Top-Level: <site>/composer.json (Mainstream)
-#   2. Deployer-Style: <site>/current/composer.json (atomic-release-Symlink)
-#   3. typo3-base: typo3/<site>/composer.json (DevOps-Konvention)
-#   4. Kombiniert: typo3/<site>/current/composer.json (typo3-base + Deployer)
-_COMPOSER_JSON_GLOBS = (
-    "*/composer.json",
-    "*/current/composer.json",
-    "typo3/*/composer.json",
-    "typo3/*/current/composer.json",
-)
+# v0.0.9-Refactor: vier Layout-Patterns werden via expliziter Pfad-Tests
+# pro Site-Verzeichnis ausgewertet (siehe _scan_site_for_typo3 + _detect_
+# composer_mode_sites unten) statt via _VAR_WWW.glob() — Letzteres ist in
+# Python 3.10 mit relativem intermediate Symlink (current → releases/<N>)
+# unzuverlässig.
 _TYPO3_PACKAGE = "typo3/cms-core"
 _VENDOR_VERSION_REL_PATH = (
     "vendor/typo3/cms-core/Classes/Information/Typo3Version.php"
@@ -167,19 +169,125 @@ def _resolve_site_root(composer_json: Path) -> Path:
     return parent
 
 
-def _detect_composer_mode_sites(seen: set[Path]) -> list[AppInfo]:
-    """Composer-Mode-TYPO3-Detection — vier Layout-Sub-Patterns.
+def _safe_is_file(path: Path) -> bool:
+    """`is_file()` defensive — PermissionError/OSError → False.
 
-    Iteriert über alle Patterns in `_COMPOSER_JSON_GLOBS`. Pro Match:
-    1. Validate composer.json ist TYPO3-Project (`typo3/cms-core` in require)
-    2. Resolve logischen site_root (strippe „current/" bei Deployer)
-    3. Dedup via `seen`-Set auf site_root (vermeidet Doppel-Detection
-       wenn mehrere Patterns matchen — z.B. Top-Level + Deployer parallel)
-    4. Extract Version aus `vendor/.../Typo3Version.php` (Symlink-follow
-       für Deployer) oder Fallback aus `composer.lock`
-    5. config_file als relativer Pfad zu site_root — zeigt Sub-Pattern
-       implizit (z.B. „composer.json" bei Top-Level, „current/composer.json"
-       bei Deployer-Layout)
+    Pfad-Tests in Live-Use treffen Verzeichnisse mit beschränkten
+    Read-Permissions (z.B. Workstation-`/var/www/html/` für non-www-data-
+    User, oder Box-spezifische ACLs). `is_file()` wirft dann
+    PermissionError beim `stat()`-Aufruf. Default zu False = „nicht
+    sichtbar / nicht zugänglich" entspricht der Read-Only-Inventur-
+    Semantik (cci sieht nur was es lesen darf).
+    """
+    try:
+        return path.is_file()
+    except (PermissionError, OSError):
+        return False
+
+
+def _safe_is_dir(path: Path) -> bool:
+    """`is_dir()` defensive — analog zu `_safe_is_file`."""
+    try:
+        return path.is_dir()
+    except (PermissionError, OSError):
+        return False
+
+
+def _check_composer_candidate(
+    composer_json: Path, seen: set[Path], apps: list[AppInfo]
+) -> None:
+    """Auswerte composer.json wenn es ein TYPO3-Project ist und hänge AppInfo an apps.
+
+    `is_file()` folgt Symlinks deterministisch in Python 3.10+ (auch
+    relative intermediate Symlinks wie deployer.org `current →
+    releases/<N>/`). Bei dangling Symlink oder Nicht-Existenz: kein-op,
+    kein Crash.
+
+    Dedup via `seen`-Set auf logischem site_root (Top-Level + Deployer
+    referenzieren denselben Site-Root → nur ein AppInfo). `seen` wird
+    mutiert; Caller teilt das Set mit Classic-Mode-Detection.
+
+    Args:
+        composer_json: Kandidat-Pfad (existiert ggf. nicht; is_file()-Check
+            entscheidet).
+        seen: Set bereits erfasster Site-Roots (mutiert).
+        apps: AppInfo-Liste (mutiert via append).
+    """
+    if not _safe_is_file(composer_json):
+        return
+    if not _is_typo3_composer_project(composer_json):
+        return
+    site_root = _resolve_site_root(composer_json)
+    if site_root in seen:
+        return
+    seen.add(site_root)
+
+    # web_root: composer.json.parent = Code-Verzeichnis. Bei Deployer-
+    # Layout ist das `<site>/current/` (Symlink auf releases/<N>/) —
+    # Path-Operationen wie `web_root / vendor/...` folgen dem Symlink
+    # transparent.
+    web_root = composer_json.parent
+
+    # Version-Extraktion: vendor zuerst, composer.lock als Fallback.
+    vendor_version_php = web_root / _VENDOR_VERSION_REL_PATH
+    version = _parse_typo3_version(vendor_version_php)
+    if version == _UNKNOWN:
+        version = _parse_typo3_version_from_lockfile(
+            web_root / _COMPOSER_LOCK_NAME
+        )
+
+    # config_file als relativer Pfad zu site_root — zeigt Layout-Pattern
+    # implizit ohne extra Schema-Feld:
+    #   „composer.json"          → Top-Level
+    #   „current/composer.json"  → Deployer (typo3-base via path-Prefix `typo3/`)
+    try:
+        config_file_rel = str(composer_json.relative_to(site_root))
+    except ValueError:
+        config_file_rel = "composer.json"
+
+    apps.append(
+        AppInfo(
+            name="typo3",
+            version=version,
+            path=str(site_root),
+            config_file=config_file_rel,
+            mode="composer",
+        )
+    )
+
+
+def _scan_site_for_typo3(
+    site_dir: Path, seen: set[Path], apps: list[AppInfo]
+) -> None:
+    """Top-Level + Deployer-Layout pro Site-Verzeichnis prüfen.
+
+    Zwei explizite Pfad-Tests:
+    - `<site>/composer.json` — Mainstream-Composer-Mode
+    - `<site>/current/composer.json` — Deployer-Pattern (current/ kann
+      relativer oder absoluter Symlink sein; is_file() folgt beide)
+
+    Dedup durch `seen` in `_check_composer_candidate`.
+    """
+    _check_composer_candidate(site_dir / "composer.json", seen, apps)
+    _check_composer_candidate(
+        site_dir / "current" / "composer.json", seen, apps
+    )
+
+
+def _detect_composer_mode_sites(seen: set[Path]) -> list[AppInfo]:
+    """Composer-Mode-TYPO3-Detection via expliziter Pfad-Auswertung.
+
+    Zwei Iterations-Ebenen:
+    1. Direkte Sites unter `/var/www/<site>/` — Mainstream + Deployer
+    2. typo3-base-Konvention `/var/www/typo3/<site>/` — DevOps-WordOps-
+       Pattern (Site-Trennung von WordOps-Default-Layout), kombiniert
+       mit Deployer möglich
+
+    Wurzel-Fix v0.0.9: `iterdir()` + `is_dir()` / `is_file()` statt
+    `pathlib.Path.glob()`. Python 3.10 `glob()` mit Pattern wie
+    `*/current/composer.json` behandelt relative intermediate Symlinks
+    inkonsistent — Live-Failure auf osU2404 trotz pytest grün.
+    Pfad-Auswertung via `is_file()` folgt Symlinks deterministisch.
 
     `seen`-Set wird mutiert (Caller teilt mit Classic-Mode-Detection).
 
@@ -187,53 +295,25 @@ def _detect_composer_mode_sites(seen: set[Path]) -> list[AppInfo]:
         Liste von AppInfo (kann leer sein).
     """
     apps: list[AppInfo] = []
-    for pattern in _COMPOSER_JSON_GLOBS:
-        try:
-            composer_jsons = list(_VAR_WWW.glob(pattern))
-        except (PermissionError, OSError):
+    try:
+        site_dirs = list(_VAR_WWW.iterdir())
+    except (PermissionError, OSError):
+        return apps
+
+    for site_dir in site_dirs:
+        if not _safe_is_dir(site_dir):
             continue
-
-        for composer_json in composer_jsons:
-            if not _is_typo3_composer_project(composer_json):
-                continue
-            site_root = _resolve_site_root(composer_json)
-            if site_root in seen:
-                continue
-            seen.add(site_root)
-
-            # web_root: composer.json.parent = Code-Verzeichnis.
-            # Bei Deployer-Layout ist das `<site>/current/` (Symlink auf
-            # releases/<N>/) — Symlink wird automatisch gefolgt für
-            # Path-Operationen wie `web_root / vendor/...`.
-            web_root = composer_json.parent
-
-            # Version-Extraktion: vendor zuerst, composer.lock als Fallback
-            vendor_version_php = web_root / _VENDOR_VERSION_REL_PATH
-            version = _parse_typo3_version(vendor_version_php)
-            if version == _UNKNOWN:
-                version = _parse_typo3_version_from_lockfile(
-                    web_root / _COMPOSER_LOCK_NAME
-                )
-
-            # config_file als relativer Pfad zu site_root — zeigt Layout-
-            # Sub-Pattern implizit ohne extra Schema-Feld:
-            #   „composer.json"              → Top-Level
-            #   „current/composer.json"      → Deployer
-            #   (typo3-base ist über path-Prefix `typo3/` sichtbar)
+        # Ebene 1: Mainstream + Deployer für direkte Sites
+        _scan_site_for_typo3(site_dir, seen, apps)
+        # Ebene 2: typo3-base-Konvention /var/www/typo3/<sub-site>/
+        if site_dir.name == "typo3":
             try:
-                config_file_rel = str(composer_json.relative_to(site_root))
-            except ValueError:
-                config_file_rel = "composer.json"
-
-            apps.append(
-                AppInfo(
-                    name="typo3",
-                    version=version,
-                    path=str(site_root),
-                    config_file=config_file_rel,
-                    mode="composer",
-                )
-            )
+                sub_dirs = list(site_dir.iterdir())
+            except (PermissionError, OSError):
+                continue
+            for sub_site in sub_dirs:
+                if _safe_is_dir(sub_site):
+                    _scan_site_for_typo3(sub_site, seen, apps)
     return apps
 
 

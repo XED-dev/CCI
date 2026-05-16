@@ -498,3 +498,99 @@ def test_detect_typo3_typo3_base_deployer_combined(tmp_path: Path) -> None:
     assert result[0]["path"] == str(site)
     assert result[0]["config_file"] == "current/composer.json"
     assert result[0]["mode"] == "composer"
+
+
+# ---------------------------------------------------------------------------
+# detect_typo3 — relative Symlinks (v0.0.9 — Live-Repro des v0.0.8-Failures)
+# ---------------------------------------------------------------------------
+
+
+# Case 27: Deployer-Layout mit RELATIVEM current-Symlink — Live-Failure-Repro
+def test_detect_typo3_deployer_relative_symlink(tmp_path: Path) -> None:
+    """Deployer-Layout mit relativem `current → releases/<N>`-Symlink.
+
+    Live-Repro des v0.0.8-Failures auf osU2404 / preprod.scheucherparkett.com:
+    Python 3.10 `pathlib.Path.glob("*/current/composer.json")` behandelte
+    relative intermediate Symlinks inkonsistent — Detection lieferte
+    leeres `apps:[]` trotz installierter TYPO3-Site. Bestehende Cases
+    24/26 nutzten `symlink_to(target, target_is_directory=True)` mit
+    absoluten Pfaden und fingen die Live-Bedingung nicht.
+
+    v0.0.9-Fix: explizite Pfad-Auswertung via `iterdir()` + `is_file()`.
+    `is_file()` folgt sowohl relativen als auch absoluten Symlinks
+    deterministisch.
+    """
+    site = tmp_path / "preprod.example.com"
+    release_dir = site / "releases" / "65"
+    release_dir.mkdir(parents=True)
+
+    (release_dir / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^11.5"}}',
+        encoding="utf-8",
+    )
+    (release_dir / "composer.lock").write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "11.5.42-dev"}]}',
+        encoding="utf-8",
+    )
+
+    # RELATIVER Symlink (deployer.org-Standard erzeugt genau dieses Pattern).
+    # Kein `target_is_directory`-Hint, kein absoluter Pfad.
+    (site / "current").symlink_to(Path("releases") / "65")
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 1
+    assert result[0]["name"] == "typo3"
+    assert result[0]["version"] == "11.5.42-dev"
+    assert result[0]["path"] == str(site)
+    assert result[0]["config_file"] == "current/composer.json"
+    assert result[0]["mode"] == "composer"
+
+
+# Case 28: Dangling current-Symlink — kein Crash, kein False-Positive
+def test_detect_typo3_dangling_current_symlink(tmp_path: Path) -> None:
+    """Dangling Symlink (Ziel existiert nicht) — defensive, kein Crash."""
+    site = tmp_path / "broken.example.com"
+    site.mkdir()
+    # Symlink auf nicht-existentes releases/99 — current/composer.json
+    # ist nicht erreichbar, is_file() returnt False.
+    (site / "current").symlink_to(Path("releases") / "99")
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert result == []
+
+
+# Case 29: typo3-base + Deployer mit RELATIVEM Symlink kombiniert
+def test_detect_typo3_typo3_base_relative_deployer(tmp_path: Path) -> None:
+    """typo3-base-Konvention + Deployer mit relativem Symlink.
+
+    DevOps-WordOps-Konvention `/var/www/typo3/<site>/` kombiniert mit
+    Deployer-Pattern `current → releases/<N>` als relativer Symlink.
+    """
+    site = tmp_path / "typo3" / "deploy.example.com"
+    release_dir = site / "releases" / "12"
+    release_dir.mkdir(parents=True)
+
+    (release_dir / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^13.4"}}',
+        encoding="utf-8",
+    )
+    (release_dir / "composer.lock").write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "13.4.10"}]}',
+        encoding="utf-8",
+    )
+
+    # RELATIVER Symlink — wie Case 27, in typo3-base-Konvention.
+    (site / "current").symlink_to(Path("releases") / "12")
+
+    with patch("cci.system.inventory.apps.typo3._VAR_WWW", tmp_path):
+        result = detect_typo3()
+
+    assert len(result) == 1
+    assert result[0]["version"] == "13.4.10"
+    assert result[0]["path"] == str(site)
+    assert result[0]["config_file"] == "current/composer.json"
+    assert result[0]["mode"] == "composer"
