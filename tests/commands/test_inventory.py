@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -19,6 +20,7 @@ from cci.commands.inventory import (
     _filter_report,
     _utc_timestamp,
 )
+from cci.system.inventory.box_class import BoxClassCheckResult
 
 runner = CliRunner()
 
@@ -36,7 +38,7 @@ def test_build_report_contains_all_sections() -> None:
     """Live-Run: _build_report ruft alle 5 collect_X_info() auf + bündelt."""
     report = _build_report()
     # Schema-Header (v0.0.9: 0.0.2 nach apps→sites-Bump)
-    assert report["schema_version"] == "0.0.2"
+    assert report["schema_version"] == "0.0.3"
     assert isinstance(report["timestamp"], str)
     assert isinstance(report["host"], str)
     # Alle 5 Sektionen vorhanden
@@ -52,7 +54,7 @@ def test_inventory_format_json_full_report() -> None:
     result = runner.invoke(app, ["typo3", "--format", "json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data["schema_version"] == "0.0.2"
+    assert data["schema_version"] == "0.0.3"
     assert "os" in data
     assert "cc_suite" in data
     assert "stack" in data
@@ -72,7 +74,7 @@ def test_inventory_section_os_only_json() -> None:
     assert "databases" not in data
     assert "sites" not in data
     # Schema-Header bleibt für Kontext
-    assert data["schema_version"] == "0.0.2"
+    assert data["schema_version"] == "0.0.3"
 
 
 # Case 5: --section cc-suite mit Bindestrich-Choice (Typer-Enum-Mapping)
@@ -136,7 +138,7 @@ def test_inventory_json_matches_whitepaper_schema() -> None:
 def test_filter_report_os_only() -> None:
     """Unit-Test der _filter_report-Logik (separat von CLI-Invocation)."""
     report: InventoryReport = {
-        "schema_version": "0.0.2",
+        "schema_version": "0.0.3",
         "timestamp": "2026-05-15T12:00:00Z",
         "host": "test-box",
         "os": {"id": "ubuntu", "version_id": "24.04",
@@ -149,13 +151,13 @@ def test_filter_report_os_only() -> None:
     filtered = _filter_report(report, Section.OS)
     assert "os" in filtered
     assert "cc_suite" not in filtered
-    assert filtered["schema_version"] == "0.0.2"
+    assert filtered["schema_version"] == "0.0.3"
 
 
 # Case 10: _filter_report mit Section.ALL gibt vollständigen Report
 def test_filter_report_all_returns_full_report() -> None:
     report: InventoryReport = {
-        "schema_version": "0.0.2",
+        "schema_version": "0.0.3",
         "timestamp": "2026-05-15T12:00:00Z",
         "host": "test-box",
         "os": {"id": "ubuntu", "version_id": "24.04",
@@ -170,3 +172,45 @@ def test_filter_report_all_returns_full_report() -> None:
         "schema_version", "timestamp", "host",
         "os", "cc_suite", "stack", "databases", "sites",
     }
+
+
+# ---------------------------------------------------------------------------
+# v0.0.10 — Box-Klassen-Pre-Step Integration
+# ---------------------------------------------------------------------------
+
+
+# Case 11: cci typo3 exits_on_box_mismatch (Pre-Step Hard-Gate, Sub-Sprint N)
+def test_inventory_command_exits_on_box_mismatch() -> None:
+    """v0.0.10 Box-Klassen-Mismatch → Exit 2 + Diagnostik auf stderr.
+
+    Note: dieser Test-Name enthält `exits_on_box_mismatch`, conftest.py
+    skippt das autouse-Mock und wir setzen eigenes Mock mit ok=False.
+    """
+    mismatch_result = BoxClassCheckResult(
+        ok=False,
+        errors=[
+            "Box ist 'debian' (erwartet: Ubuntu LTS 22.04 oder 24.04)",
+            "WordOps-CLI `wo` nicht im PATH",
+            "nginx-wo-Paket nicht installiert (dpkg-query: unbekannt)",
+        ],
+        diagnostics={
+            "os": "debian 12",
+            "wo_binary": "missing",
+            "nginx_wo": "not-installed",
+        },
+    )
+
+    with patch(
+        "cci.commands.inventory.verify_typo3_box_class",
+        return_value=mismatch_result,
+    ):
+        result = runner.invoke(app, ["typo3"])
+
+    assert result.exit_code == 2
+    # Mismatch-Banner + Errors landen auf stderr (vermischt mit stdout im
+    # default CliRunner-Mode — "Box-Klassen-Mismatch" sollte irgendwo
+    # im Output sein).
+    combined = result.stdout + (result.stderr if result.stderr else "")
+    assert "Box-Klassen-Mismatch" in combined
+    assert "debian" in combined
+    assert "nginx-wo" in combined

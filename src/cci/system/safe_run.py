@@ -49,6 +49,14 @@ COMMAND_WHITELIST: dict[str, Optional[frozenset[str]]] = {
     # > nice-to-have-future).
     "php": frozenset({"--version", "-v"}),
     "node": frozenset({"--version", "-v"}),
+    # wo (WordOps-CLI): nur Listing/Info-Subkommandos (v0.0.10).
+    # cci nutzt `wo site list` und `wo info` (read-only).
+    # CAVEAT: Whitelist-Logik prüft nur cmd[1]. `wo site create`/`...delete`/
+    # `...edit` sind mutating und wären unter cmd[1]='site' theoretisch
+    # durchsetzbar — werden aber NUR von cci-Code aufgerufen (kein
+    # User-Input). Verschärfung via zweistufiger Subkommando-Whitelist
+    # (cmd[1] + cmd[2]) ist Schema-Change-Backlog in v0.0.12+.
+    "wo": frozenset({"site", "info", "--help", "-h"}),
     # Inhärent Read-Only — alle Argumente erlaubt.
     # KEIN cat — Path.read_text() ist Stdlib-Idiomatik in apps/typo3.py.
     "uname": None,

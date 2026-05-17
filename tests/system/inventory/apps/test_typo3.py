@@ -10,6 +10,7 @@ from cci.system.inventory.apps import (
     collect_apps_info,
 )
 from cci.system.inventory.apps.typo3 import (
+    _detect_typo3_project,
     _is_typo3_composer_project,
     _parse_typo3_version,
     _parse_typo3_version_from_lockfile,
@@ -594,3 +595,209 @@ def test_detect_typo3_typo3_base_relative_deployer(tmp_path: Path) -> None:
     assert result[0]["path"] == str(site)
     assert result[0]["config_file"] == "current/composer.json"
     assert result[0]["mode"] == "composer"
+
+
+# ---------------------------------------------------------------------------
+# v0.0.10 — _is_typo3_composer_project OR-Logic (Custom-Wrapper-Pattern)
+# ---------------------------------------------------------------------------
+
+
+# Case 5b: composer.json mit typo3/cms-backend in require (kein cms-core)
+def test_is_typo3_composer_project_backend_only(tmp_path: Path) -> None:
+    """OR-Logic v0.0.10: irgendein typo3/cms-* in require → True.
+
+    Custom-Wrapper-Projects bündeln oft nur einzelne typo3/cms-*-Packages
+    in require (z.B. typo3/cms-backend, -frontend, -extbase), und ziehen
+    typo3/cms-core transitive via composer.lock. Alte v0.0.9-Detection
+    (`typo3/cms-core in require` strikt) verfehlt das — v0.0.10 OR-Logic
+    erkennt es.
+    """
+    composer_json = tmp_path / "composer.json"
+    composer_json.write_text(
+        '{"require": {"typo3/cms-backend": "^12.4", "typo3/cms-frontend": "^12.4"}}',
+        encoding="utf-8",
+    )
+    assert _is_typo3_composer_project(composer_json) is True
+
+
+# ---------------------------------------------------------------------------
+# v0.0.10 — _detect_typo3_project Multi-Source-Hierarchie (Pure Function)
+# ---------------------------------------------------------------------------
+
+
+# Case 30: Custom-Distribution Wurzel-Asche v0.0.9 — composer.json hat KEIN
+# typo3/cms-core direkt, composer.lock hat es als transitive Dep
+def test_detect_typo3_project_custom_distribution_lock(tmp_path: Path) -> None:
+    """Live-Repro: mmcagentur-Style Custom-Distribution.
+
+    composer.json `require` enthält nur Custom-Wrapper-Packages
+    (mmcagentur/...), `typo3/cms-core` ist transitive in composer.lock.
+    v0.0.9-Detection verfehlte das (Sites:(none) auf osU2404 trotz
+    TYPO3 v12.4.45 installiert) — v0.0.10 Source 2 erkennt es.
+    """
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / "composer.json").write_text(
+        '{"name": "mmcagentur/typo3-website-scheucher-parkett",'
+        ' "type": "project",'
+        ' "require": {"mmcagentur/typo3-base": "^1.0", "php": "^8.3"}}',
+        encoding="utf-8",
+    )
+    (project_root / "composer.lock").write_text(
+        '{"packages": ['
+        '{"name": "mmcagentur/typo3-base", "version": "1.0.0"},'
+        '{"name": "typo3/cms-core", "version": "v12.4.45"},'
+        '{"name": "typo3/cms-backend", "version": "v12.4.45"}'
+        ']}',
+        encoding="utf-8",
+    )
+
+    result = _detect_typo3_project(project_root)
+
+    assert result is not None
+    assert result["version"] == "12.4.45"
+    assert result["source"] == "composer-lock"
+    assert result["mode"] == "composer"
+
+
+# Case 31: vendor-only Detection (kein composer.lock, kein composer.json)
+def test_detect_typo3_project_vendor_only(tmp_path: Path) -> None:
+    """Source 1 vendor-php als alleinige Quelle.
+
+    Edge-Case: installed TYPO3 ohne erreichbare composer-Meta-Dateien
+    (z.B. nach manuellem Cleanup). Detection bleibt funktional via
+    vendor/typo3/cms-core/Classes/Information/Typo3Version.php.
+    """
+    project_root = tmp_path / "project"
+    vendor_dir = project_root / "vendor" / "typo3" / "cms-core" / "Classes" / "Information"
+    vendor_dir.mkdir(parents=True)
+    (vendor_dir / "Typo3Version.php").write_text(
+        "<?php\nclass Typo3Version {\n"
+        "    protected const VERSION = '13.4.1';\n}\n",
+        encoding="utf-8",
+    )
+
+    result = _detect_typo3_project(project_root)
+
+    assert result is not None
+    assert result["version"] == "13.4.1"
+    assert result["source"] == "vendor-php"
+    assert result["mode"] == "composer"
+
+
+# Case 31b: vendor existiert aber Typo3Version.php hat KEIN parsbares VERSION
+# → Fallback zu composer.lock für echte Version (Partial-Install-Edge-Case)
+def test_detect_typo3_project_vendor_partial_lock_fallback(tmp_path: Path) -> None:
+    """Partial-Install: vendor-Dir da, aber Typo3Version.php fehlt VERSION-Konst.
+
+    Senior-Hint (AI045): edge-case wo vendor existiert aber Version-Parse
+    _UNKNOWN ergibt. v0.0.10 fallback zu composer.lock für echte Version,
+    aber source bleibt vendor-php (TYPO3 ist installiert, nur Version-Parse
+    failed).
+    """
+    project_root = tmp_path / "project"
+    vendor_dir = project_root / "vendor" / "typo3" / "cms-core" / "Classes" / "Information"
+    vendor_dir.mkdir(parents=True)
+    # Typo3Version.php existiert aber ohne VERSION-Konstante (Partial-File)
+    (vendor_dir / "Typo3Version.php").write_text(
+        "<?php\nclass Typo3Version { /* incomplete */ }\n",
+        encoding="utf-8",
+    )
+    (project_root / "composer.lock").write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "12.4.45"}]}',
+        encoding="utf-8",
+    )
+
+    result = _detect_typo3_project(project_root)
+
+    assert result is not None
+    assert result["version"] == "12.4.45"  # via lock-Fallback
+    assert result["source"] == "vendor-php"  # vendor existiert → primary
+    assert result["mode"] == "composer"
+
+
+# Case 32: composer.json mit typo3/cms-* in require, kein vendor, kein lock
+def test_detect_typo3_project_composer_json_only(tmp_path: Path) -> None:
+    """Source 3 composer-json: nur Constraint verfügbar, keine resolved Version.
+
+    Pre-Install-Edge-Case: composer.json sagt TYPO3 (via cms-backend),
+    aber composer install ist nicht gelaufen. version=_UNKNOWN als
+    Detection-Result.
+    """
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / "composer.json").write_text(
+        '{"type": "project", "require": {"typo3/cms-backend": "^13.4"}}',
+        encoding="utf-8",
+    )
+
+    result = _detect_typo3_project(project_root)
+
+    assert result is not None
+    assert result["version"] == "unknown"
+    assert result["source"] == "composer-json"
+    assert result["mode"] == "composer"
+
+
+# Case 33: Multi-Source-Konsistenz — alle drei Sources verfügbar
+# → Priorität vendor-php (Source 1)
+def test_detect_typo3_project_multi_source_priority(tmp_path: Path) -> None:
+    """Detection-Hierarchie: erste positive Source (vendor-php) gewinnt.
+
+    Alle drei Sources liefern konsistente Version. Pure-Function returnt
+    Source 1 (vendor-php, autoritativ-lokal). Version-Konsistenz-Check
+    selbst kommt in v0.0.11 mit Composer-CLI (Case 33b Schema-Drift-Warning).
+    """
+    project_root = tmp_path / "project"
+    vendor_dir = project_root / "vendor" / "typo3" / "cms-core" / "Classes" / "Information"
+    vendor_dir.mkdir(parents=True)
+    (vendor_dir / "Typo3Version.php").write_text(
+        "<?php\nclass Typo3Version {\n"
+        "    protected const VERSION = '12.4.45';\n}\n",
+        encoding="utf-8",
+    )
+    (project_root / "composer.lock").write_text(
+        '{"packages": [{"name": "typo3/cms-core", "version": "12.4.45"}]}',
+        encoding="utf-8",
+    )
+    (project_root / "composer.json").write_text(
+        '{"require": {"typo3/cms-core": "^12.4"}}',
+        encoding="utf-8",
+    )
+
+    result = _detect_typo3_project(project_root)
+
+    assert result is not None
+    assert result["version"] == "12.4.45"
+    assert result["source"] == "vendor-php"  # Priorität (Source 1)
+    assert result["mode"] == "composer"
+
+
+# Case 34: Non-TYPO3 Project (laravel) → None
+def test_detect_typo3_project_non_typo3(tmp_path: Path) -> None:
+    """Defense: non-TYPO3 Composer-Project (Laravel) wird NICHT als TYPO3 erkannt."""
+    project_root = tmp_path / "laravel-site"
+    project_root.mkdir()
+    (project_root / "composer.json").write_text(
+        '{"require": {"laravel/framework": "^11.0", "php": "^8.2"}}',
+        encoding="utf-8",
+    )
+    (project_root / "composer.lock").write_text(
+        '{"packages": [{"name": "laravel/framework", "version": "11.0.0"}]}',
+        encoding="utf-8",
+    )
+
+    result = _detect_typo3_project(project_root)
+
+    assert result is None
+
+
+# Case 35: Leeres / non-existing project_root → None
+def test_detect_typo3_project_empty_root(tmp_path: Path) -> None:
+    """Defense: project_root ohne irgendwelche Composer-Files → None."""
+    project_root = tmp_path / "empty-project"
+    project_root.mkdir()
+
+    result = _detect_typo3_project(project_root)
+
+    assert result is None

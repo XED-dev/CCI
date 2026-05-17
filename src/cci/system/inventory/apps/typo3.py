@@ -46,6 +46,43 @@ Beispiele aus TYPO3-Releases:
 - v9-v11: `public const VERSION = '11.5.0';`
 - v12+: `protected const VERSION = '12.4.10';`
 - main-Branch: `protected const VERSION = '15.0.0-dev';`
+
+---
+
+v0.0.10 — Detection-Multi-Source-Hierarchie:
+
+Die neue Public-API `_detect_typo3_project(project_root: Path)` ist
+eine Pure Detection Function (kein Filesystem-Scan, kein /var/www-
+iterdir). Pro Project-Root wird mit folgender Hierarchie geprüft —
+erste positive Source gewinnt:
+
+  1. **vendor-php** (autoritativ, lokal installiert) —
+     `vendor/typo3/cms-core/Classes/Information/Typo3Version.php` mit
+     parsable VERSION-Konstante. Beweis dass TYPO3-Composer-Install
+     gelaufen ist + welche echte Version installiert wurde.
+  2. **composer-lock** (transitive Detection) — `composer.lock`
+     `packages[]` mit `name == typo3/cms-core` + `version`. Erfasst
+     Custom-Distribution-Wrappers (z.B. `mmcagentur/...`) die TYPO3
+     transitiv via eigene Meta-Pakete bündeln.
+  3. **composer-json** (Custom-Wrapper-Fallback) — `composer.json`
+     `require` mit `typo3/cms-core` ODER irgendein `typo3/cms-*`-
+     Package. Version-Constraint statt resolved Version, daher
+     `version=unknown` als Detection-Result.
+
+Live-Asche v0.0.9: meine alte Detection prüfte nur direkter
+`typo3/cms-core` in `require` (Source 3 strikt) — verfehlte
+mmcagentur-Custom-Wrapper-Sites, die `typo3/cms-core` nur transitive
+in composer.lock haben (Source 2).
+
+Site-Enumeration (welche project_roots geprüft werden) wandert in
+v0.0.10 zu `cci/system/inventory/sites.py` (Werkzeug-First via
+`wo site list` + Nginx-Config-Parse). `_detect_typo3_project` ist
+pure: bekommt project_root als Input, prüft drei Sources, returnt
+Result.
+
+Backwards-Compat: `detect_typo3()` legacy bleibt — ruft intern
+`_detect_typo3_project` pro `/var/www/<site>/`-iterdir-Kandidat auf,
+für Tests die noch das legacy-API nutzen.
 """
 
 from __future__ import annotations
@@ -53,8 +90,9 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Optional
 
-from cci.system.inventory.apps._types import AppInfo
+from cci.system.inventory.apps._types import AppInfo, TYPO3DetectionResult
 
 
 # Standard-Suchpfad für TYPO3-Installationen
@@ -108,8 +146,16 @@ def _parse_typo3_version(version_php: Path) -> str:
 def _is_typo3_composer_project(composer_json: Path) -> bool:
     """Check ob composer.json eine TYPO3-Site identifiziert.
 
-    Sucht `typo3/cms-core` in `require` (Production-Dependency).
-    Defensive: bei OSError/JSONDecodeError/Schema-Drift → False (kein Crash).
+    v0.0.10 — OR-Logic gegen Custom-Distribution-Wrapper:
+    matched `typo3/cms-core` ODER irgendein `typo3/cms-*`-Package in
+    `require`. Hintergrund: Custom-Distribution-Projects (z.B.
+    `mmcagentur/typo3-website-...`) bündeln eigene Meta-Packages und
+    ziehen `typo3/cms-core` oft nur transitive via composer.lock,
+    während require direkt nur Custom-Wrapper-Pakete oder einzelne
+    `typo3/cms-backend`/`-frontend`/`-extbase`-Packages listet.
+
+    Defensive: bei OSError/JSONDecodeError/Schema-Drift → False
+    (kein Crash).
     """
     try:
         data = json.loads(composer_json.read_text(encoding="utf-8"))
@@ -118,7 +164,12 @@ def _is_typo3_composer_project(composer_json: Path) -> bool:
     require = data.get("require", {}) if isinstance(data, dict) else {}
     if not isinstance(require, dict):
         return False
-    return _TYPO3_PACKAGE in require
+    for pkg_name in require:
+        if pkg_name == _TYPO3_PACKAGE:
+            return True
+        if isinstance(pkg_name, str) and pkg_name.startswith("typo3/cms-"):
+            return True
+    return False
 
 
 def _parse_typo3_version_from_lockfile(composer_lock: Path) -> str:
@@ -191,6 +242,80 @@ def _safe_is_dir(path: Path) -> bool:
         return path.is_dir()
     except (PermissionError, OSError):
         return False
+
+
+def _detect_typo3_project(project_root: Path) -> Optional[TYPO3DetectionResult]:
+    """Pure-Detection: ob `project_root` eine TYPO3-Installation ist (v0.0.10).
+
+    Multi-Source-Hierarchie — erste positive Source gewinnt:
+      1. vendor-php (autoritativ, installed): `vendor/typo3/cms-core/Classes/
+         Information/Typo3Version.php` — Version aus PHP-Const-Parse.
+      2. composer-lock (transitive): `composer.lock` `packages[]` mit
+         `name == typo3/cms-core` — Version aus lock-File. Erfasst Custom-
+         Distribution-Wrappers (mmcagentur-Style) die TYPO3 nur transitive
+         in require haben.
+      3. composer-json (Fallback): `composer.json` `require` mit
+         `typo3/cms-core` ODER irgendein `typo3/cms-*`-Package. Nur
+         Constraint statt resolved Version → `version=unknown`.
+
+    Pure Function: kein Filesystem-Scan, kein subprocess. Site-Enumeration
+    (welche project_roots geprüft werden) ist Aufgabe des Callers
+    (`sites.py` ab v0.0.10 / `detect_typo3` legacy für `/var/www/`-iterdir).
+
+    Defensive: bei keiner positiven Source returns None. Permission-Fehler
+    werden via `_safe_is_file` abgefangen (returns False → Source-Skip).
+
+    Args:
+        project_root: Path zum Project-Root (z.B. `/var/www/<site>/current/`).
+
+    Returns:
+        `TYPO3DetectionResult` wenn TYPO3 erkannt, sonst None.
+    """
+    # Source 1: vendor-php (autoritativ, installed-Version)
+    vendor_php = project_root / _VENDOR_VERSION_REL_PATH
+    if _safe_is_file(vendor_php):
+        version = _parse_typo3_version(vendor_php)
+        # vendor existiert → TYPO3 ist installiert. Wenn VERSION-Parse
+        # _UNKNOWN ergibt (Partial-Install ohne parsable VERSION-Konst),
+        # versuche Fallback zu composer-lock für echte Version.
+        if version == _UNKNOWN:
+            composer_lock_fallback = project_root / _COMPOSER_LOCK_NAME
+            if _safe_is_file(composer_lock_fallback):
+                lock_version = _parse_typo3_version_from_lockfile(
+                    composer_lock_fallback
+                )
+                if lock_version != _UNKNOWN:
+                    version = lock_version
+        return TYPO3DetectionResult(
+            version=version,
+            source="vendor-php",
+            config_file="composer.json",
+            mode="composer",
+        )
+
+    # Source 2: composer-lock (transitive Detection ohne vendor-Install)
+    composer_lock = project_root / _COMPOSER_LOCK_NAME
+    if _safe_is_file(composer_lock):
+        version = _parse_typo3_version_from_lockfile(composer_lock)
+        if version != _UNKNOWN:
+            return TYPO3DetectionResult(
+                version=version,
+                source="composer-lock",
+                config_file="composer.json",
+                mode="composer",
+            )
+
+    # Source 3: composer-json (Custom-Wrapper-Fallback, OR-Logic)
+    composer_json = project_root / "composer.json"
+    if _safe_is_file(composer_json) and _is_typo3_composer_project(composer_json):
+        return TYPO3DetectionResult(
+            version=_UNKNOWN,
+            source="composer-json",
+            config_file="composer.json",
+            mode="composer",
+        )
+
+    return None
 
 
 def _check_composer_candidate(

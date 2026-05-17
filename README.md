@@ -85,16 +85,24 @@ cci typo3 --format json > /tmp/box.json
 Der AI-Agent sieht in einem strukturierten JSON-Block alle relevanten
 Box-Daten und kann fundierte Migrations-/Update-Empfehlungen geben.
 
-## v0.0.9 BREAKING-Migration
+## v0.0.10 BREAKING-Migration
 
-- **Verb-Switch:** `cci inventory` → `cci typo3` (hartgesetzt, kein Deprecation-Alias).
+- **Site-Schema neu** (JSON-Schema 0.0.2 → 0.0.3): `report["sites"]` ist
+  jetzt `list[SiteEntry]` (Webroot-zentriert mit nested `DomainInfo`)
+  statt `list[AppInfo]`. Multi-Webroot-Mapping (mehrere Domains teilen
+  Webroot mit unterschiedlichen PHP-Versionen) wird natürlich erfasst.
+- **Werkzeug-First-Detection:** `wo site list` + Nginx-Config-Parse als
+  Primärquelle (autoritativ). Detection-Hierarchie pro Webroot:
+  vendor-FS → composer.lock → composer.json (OR-Logic auf `typo3/cms-*`).
+- **Box-Klassen-Pre-Step:** Hard-Gate vor Inventur (Ubuntu LTS 22.04/24.04
+  + `wo`-CLI + `nginx-wo`-Build). Bei Mismatch Exit 2 mit Diagnostik.
+
+## v0.0.9 BREAKING-Migration (unverändert ab v0.0.10)
+
+- **Verb-Switch:** `cci inventory` → `cci typo3` (kein Deprecation-Alias).
 - **Section-Rename:** `--section apps` → `--section sites`.
-- **JSON-Schema 0.0.1 → 0.0.2:** Top-Level-Key `"apps"` → `"sites"`. AI-Agent-
-  Konsumenten und Skripte mit `report["apps"]` müssen auf `report["sites"]`
-  umgestellt werden. Detector-Layer-Code (`AppInfo` + `collect_apps_info`) bleibt
-  unverändert.
 
-Siehe [CHANGELOG.md](./CHANGELOG.md) für vollständige BREAKING-Liste + Verb-Mapping.
+Siehe [CHANGELOG.md](./CHANGELOG.md) für vollständige BREAKING-Liste + Migrations-Mapping.
 
 ## Roadmap
 

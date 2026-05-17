@@ -1,5 +1,5 @@
 #!/bin/bash
-# firstboot.sh v0.0.9 — XED /CCI cBOX@ /Container Inventur Bootstrap
+# firstboot.sh v0.0.10 — XED /CCI cBOX@ /Container Inventur Bootstrap
 #
 # Quelle:    https://github.com/XED-dev/CCI
 # Aufruf:    bash <(curl -s https://cci.xed.dev/firstboot.sh)
@@ -25,7 +25,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # === Globals ===
 
-VERSION="0.0.9"
+VERSION="0.0.10"
 SCRIPT_NAME="firstboot.sh"
 FIRSTBOOT_LOG_FILE="/var/log/xed-cci.log"
 

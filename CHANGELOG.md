@@ -5,6 +5,150 @@ Alle bemerkenswerten Änderungen an `xed-cci` werden hier dokumentiert.
 Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.0.10] — 2026-05-17
+
+### ⚠ BREAKING — Werkzeug-First-Architektur + Webroot-zentriertes Site-Schema
+
+v0.0.10 fixt die Wurzel der v0.0.9-Live-Asche (Sites:(none) auf osU2404
+trotz 9 echter WordOps-Sites mit TYPO3 v12.4.45 installiert) und legt
+die Architektur strukturell neu:
+
+1. **Detection-Multi-Source-Hierarchie** (Sub-Sprint J):
+   alte `_is_typo3_composer_project`-Detection prüfte nur direkter
+   `typo3/cms-core` in `require` — verfehlte Custom-Distribution-Wrapper
+   (z.B. `mmcagentur/typo3-website-...`) die `typo3/cms-core` nur
+   transitive via composer.lock haben. v0.0.10 erweitert auf
+   Multi-Source-Hierarchie: vendor-FS → composer.lock → composer.json
+   (mit OR-Logic auf `typo3/cms-*`).
+
+2. **Werkzeug-First-Site-Enumeration** (Sub-Sprint K, neuer File
+   `sites.py`): `wo site list` als Primärquelle + Nginx-Config-Parse
+   für Webroot+PHP-Version (autoritativ). Ersetzt legacy
+   `/var/www/`-iterdir-Heuristik. Multi-Webroot-Mapping erfasst Sites
+   die denselben Webroot teilen mit unterschiedlichen PHP-Versionen.
+
+3. **Box-Klassen-Pre-Step** (Sub-Sprint N, neuer File `box_class.py`):
+   Hard-Gate vor Inventur — Ubuntu LTS 22.04/24.04 + `wo` im PATH +
+   `nginx-wo`-Paket installiert. Bei Mismatch Exit 2 mit Diagnostik.
+
+**Konsumenten-Migration:**
+
+| Alt (v0.0.9) | Neu (v0.0.10) |
+|---|---|
+| `report["sites"]` = `list[AppInfo]` (pro Site) | `list[SiteEntry]` (pro Webroot mit nested DomainInfo) |
+| `AppInfo` mit `name`, `version`, `path`, `config_file`, `mode` | `SiteEntry` mit `webroot`, `project_root`, `cms`, `cms_version`, `cms_mode`, `cms_source`, `config_file`, `domains` |
+| Eine TYPO3-Site = ein AppInfo (auch wenn Webroot shared) | Ein Webroot = ein SiteEntry (auch wenn 3 Domains drauf zeigen) |
+| Output: 1 Site pro Domain | Output: 1 Site pro Webroot + Domain-Liste pro Site |
+
+**JSON-Schema-Bump 0.0.2 → 0.0.3:** Sub-Struktur von `sites[]` ist
+BREAKING. AI-Agent-Konsumenten + Skripte müssen auf neue SiteEntry-
+Felder umgestellt werden.
+
+### Behoben (Sub-Sprint J — apps:[]-Wurzel-Fix endgültig)
+
+- **`apps/typo3.py`: `_detect_typo3_project(project_root)` als neue
+  Pure-Function** mit Multi-Source-Detection-Hierarchie:
+  1. vendor-php (autoritativ, installed)
+  2. composer-lock (transitive)
+  3. composer-json (Constraint, mit OR-Logic auf `typo3/cms-*`)
+- **`_is_typo3_composer_project` erweitert auf OR-Logic:**
+  `typo3/cms-core` ODER irgendein `typo3/cms-*`-Package matchend.
+  Live-Realität auf osU2404 bestätigt: Custom-Wrapper-Sites haben
+  `typo3/cms-core` nur transitive in composer.lock.
+- **Plus Partial-Install-Edge-Case:** vendor existiert aber
+  Typo3Version.php hat keine VERSION-Konstante → Fallback zu lock
+  für echte Version. Source bleibt vendor-php (TYPO3 ist installiert).
+
+### Hinzugefügt (Sub-Sprint K — Werkzeug-First-Site-Enumeration)
+
+- **Neuer File `cci/system/inventory/sites.py`** mit:
+  - `_list_wordops_sites()` via `wo site list` (safe_run-whitelisted)
+  - `_parse_nginx_site_config()` pure-Parse: `root` + `include common/phpXY.conf`
+  - `_resolve_project_root()`: Parent von `*/public` (Composer-Layout)
+  - `collect_sites_info()` mit Webroot-Gruppierung (DevOps-Vote
+    2026-05-17: „Webroot ist Quelle der Wahrheit, Domain ist View darauf")
+- **safe_run COMMAND_WHITELIST erweitert:** `wo` mit
+  `frozenset({"site", "info", "--help", "-h"})`. CAVEAT-Kommentar
+  dokumentiert dass mutierende `wo site create`/`delete`-Aufrufe
+  durch cmd[1]='site' theoretisch durchsetzbar sind — werden aber
+  nur von cci-Code aufgerufen (kein User-Input).
+- **Plus erste Erkenntnis aus Live-Realität:** `wo site info` ist NICHT
+  autoritativ für aktuelle PHP-Version (zeigt WordOps-Internal-Config,
+  driftet bei manueller Nginx-Edit). Nginx-Config-Parse autoritativ.
+
+### Hinzugefügt (Sub-Sprint N — Box-Klassen-Pre-Step)
+
+- **Neuer File `cci/system/inventory/box_class.py`** mit
+  `verify_typo3_box_class()` und Helpers `_check_ubuntu_lts()`,
+  `_check_wo_binary()`, `_check_nginx_wo_installed()`. Returns
+  `BoxClassCheckResult(ok, errors, diagnostics)`.
+- **`inventory_command` Pre-Step:** vor Composition wird
+  `verify_typo3_box_class()` aufgerufen. Bei ok=False: Mismatch-
+  Banner + Errors + Diagnostik nach stderr, Exit 2.
+- **Stack-Komponenten** (Multi-PHP, MariaDB, Solr, Composer-CLI)
+  bleiben bewusst out-of-scope für Pre-Step — saubere Schicht-
+  Trennung Box-Identifikation vs Stack-Inventur (v0.0.12+).
+
+### Geändert (Output-Datenmodell + Rich-Rendering)
+
+- **`SiteEntry` + `DomainInfo` TypedDicts** in `sites.py`:
+  - `SiteEntry`: webroot, project_root, cms, cms_version, cms_mode,
+    cms_source, config_file, domains
+  - `DomainInfo`: domain, php_version, nginx_config
+- **`_render_sites` mit Tree-Output** für nested Multi-Domain pro
+  Webroot (├─/└─ UTF-8-Box-Drawing).
+- **`_render_oneliner` + `_render_text`** analog mit Webroot-Gruppen.
+
+### Tests
+
+- 8 neue Cases in `test_typo3.py`:
+  - Case 5b: OR-Logic mit `typo3/cms-backend` (Custom-Wrapper)
+  - Case 30: Custom-Distribution mit composer.lock-transitive
+  - Case 31: vendor-only Detection
+  - Case 31b: vendor + Typo3Version.php-partial → Fallback lock
+  - Case 32: composer.json mit `typo3/cms-*` (kein vendor/lock)
+  - Case 33: Multi-Source-Konsistenz, vendor-Priorität
+  - Case 34: non-TYPO3 (Laravel) → None
+  - Case 35: leerer project_root → None
+- 16 neue Cases in `test_sites.py` (Werkzeug-First-Enumeration):
+  - `_list_wordops_sites` mit mocked subprocess
+  - `_parse_nginx_site_config` mit Kommentar-Stripping, PHP-Versions-Mapping
+  - `_resolve_project_root` für public/htdocs/deployer-Layouts
+  - `collect_sites_info` Integration inkl. Multi-Webroot-Mapping
+    (Live-Repro: 3 Domains teilen 1 Webroot mit 7.4/8.3/7.4)
+- 17 neue Cases in `test_box_class.py` (Pre-Step):
+  - `_parse_os_release` mit Quotes/Comments
+  - `_check_ubuntu_lts` mit Match (22.04/24.04) + Mismatch (Debian/20.04/missing)
+  - `_check_wo_binary` mit shutil.which-Mock
+  - `_check_nginx_wo_installed` mit dpkg-query-Mock
+  - `verify_typo3_box_class` Integration (Match + Mismatch-Cases)
+- 1 neuer Case in `test_inventory.py`:
+  - `test_inventory_command_exits_on_box_mismatch` (Pre-Step Hard-Gate)
+- Plus `tests/conftest.py` mit autouse-Mock für CLI-Invocation-Tests.
+- 130/130 pytest grün auf der Workstation (vormals 88/88 in v0.0.9).
+
+### Pattern-Anker
+
+Architektur-Wurzel-Lehre (drei Aschen-Pattern dieser Session):
+„rate-herumprogrammieren statt Doku/Realität-First" ist Anti-Pattern.
+Doku + Community + Live-Realität sind autoritative Quellen — Pattern-
+Recall ohne Verifikation ist Asche-Wurzel. v0.0.10 bricht das Pattern
+durch WebFetch-Doku-Recherche (Composer-Schema + TYPO3-BaseDistribution
++ WordOps-Doku) plus systematische Live-Daten-Sammlung auf osU2404.
+
+cci muss SELBSTSTÄNDIG alle Eventualitäten erkennen (DevOps-Direktive
+2026-05-17): robuste Multi-Source-Detection statt strikte Single-Source.
+Pattern-Anker: Detection-Hierarchie mit klarer Priorität (autoritativ
+zuerst, Fallback zuletzt) + neutrale source-Field für Diagnose.
+
+Webroot-zentriertes Site-Schema (DevOps-Vote 2026-05-17): „Webroot ist
+Quelle der Wahrheit, Domain ist View darauf." Multi-Webroot-Mapping
+ist Realität (3 Sites teilen Code-Webroot mit unterschiedlichen PHP-
+Versionen), nicht Anomalie — nested SiteEntry+DomainInfo macht das
+natürlich konsumierbar.
+
+[0.0.10]: https://github.com/XED-dev/CCI/releases/tag/v0.0.10
+
 ## [0.0.9] — 2026-05-15
 
 ### ⚠ BREAKING — Architektur-Neufundierung auf Box-Klassen

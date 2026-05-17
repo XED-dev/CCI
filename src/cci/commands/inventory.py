@@ -2,8 +2,7 @@
 
 Composition über die fünf Inventur-Sektionen (os/cc-suite/stack/databases/
 sites). Output entweder Rich-Tabelle (Mensch) oder JSON (AI-Agent-
-Konsumtion). CLI-Verb seit v0.0.9: `cci typo3` (vormals `cci inventory`,
-Architektur-Pivot auf Box-Klassen-Subkommandos — siehe `cli.py`).
+Konsumtion). CLI-Verb seit v0.0.9: `cci typo3`.
 
 Pattern-Anker für Composition:
 - InventoryReport TypedDict matcht WHITEPAPER §JSON-Schema 1:1
@@ -13,20 +12,29 @@ Pattern-Anker für Composition:
 - socket.gethostname() — KEIN subprocess hostname
 - _SCHEMA_VERSION als Konstante (Single-Source-of-Truth)
 
-v0.0.9-Schema-Bump 0.0.1 → 0.0.2:
-- Top-Level-Key `apps` → `sites` (Output-Aggregations-Layer-Konvention)
-- Detector-Layer-Code (`system/inventory/apps/*` + AppInfo) bleibt
-  unverändert — Section-Naming folgt Box-Klassen-Output-Domain,
-  Detector-Naming folgt Implementation-Domain.
+v0.0.10-Schema-Bump 0.0.2 → 0.0.3 (BREAKING):
+- Site-Item-Schema neu: SiteEntry (Webroot-zentriert) + nested DomainInfo
+  (DevOps-Vote 2026-05-17: „Webroot ist Quelle der Wahrheit, Domain ist
+  View darauf"). Multi-Webroot-Mapping (mehrere Domains teilen Webroot
+  mit unterschiedlichen PHP-Versionen) wird natürlich erfasst.
+- Detection-Wurzel-Fix: collect_sites_info() (sites.py) via Werkzeug-
+  First (`wo site list` + Nginx-Config-Parse + Multi-Source-Detection)
+  ersetzt legacy `/var/www/`-iterdir-Heuristik aus collect_apps_info().
+- Box-Klassen-Pre-Step (box_class.py) als Hard-Gate vor Inventur:
+  Ubuntu LTS 22.04/24.04 + WordOps-CLI + nginx-wo-Build. Bei Mismatch
+  Exit 2 mit klarer Meldung.
 
 Stdlib-Reflex maximiert: keine subprocess-Aufrufe in dieser Datei
-(Composition + Output-Rendering nur).
+(Composition + Output-Rendering nur). Subprocess-Aufrufe (`wo site list`,
+`dpkg-query`) sind in sites.py + box_class.py + collect_*-Helpers
+gekapselt mit safe_run-Whitelist.
 """
 
 from __future__ import annotations
 
 import json
 import socket
+import sys
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -36,21 +44,21 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from cci.system.inventory.apps import AppInfo, collect_apps_info
+from cci.system.inventory.box_class import verify_typo3_box_class
 from cci.system.inventory.cc_suite import CCSuiteInfo, collect_cc_suite_info
 from cci.system.inventory.databases import DatabaseInfo, collect_databases_info
 from cci.system.inventory.os import OSInfo, collect_os_info
+from cci.system.inventory.sites import SiteEntry, collect_sites_info
 from cci.system.inventory.stack import StackInfo, collect_stack_info
 
-_SCHEMA_VERSION = "0.0.2"
+_SCHEMA_VERSION = "0.0.3"
 
 
 class InventoryReport(TypedDict):
     """Vollständige Inventur-Composition matching WHITEPAPER §JSON-Schema.
 
-    v0.0.9: Top-Level-Key `apps` → `sites` (BREAKING — siehe Schema-Bump
-    0.0.1 → 0.0.2). Inhalt unverändert — Liste von AppInfo-Records,
-    aber unter neuem Aggregations-Layer-Namen.
+    v0.0.10: `sites` ist jetzt `list[SiteEntry]` (Webroot-zentriert mit
+    nested DomainInfo), BREAKING-Change zu v0.0.9 (`list[AppInfo]`).
     """
 
     schema_version: str
@@ -60,15 +68,11 @@ class InventoryReport(TypedDict):
     cc_suite: CCSuiteInfo
     stack: StackInfo
     databases: list[DatabaseInfo]
-    sites: list[AppInfo]
+    sites: list[SiteEntry]
 
 
 class Section(str, Enum):
-    """Erlaubte --section-Werte (Typer-Choices).
-
-    v0.0.9: `APPS = "apps"` → `SITES = "sites"` (Box-Klassen-Aggregations-
-    Layer-Naming).
-    """
+    """Erlaubte --section-Werte (Typer-Choices)."""
 
     ALL = "all"
     OS = "os"
@@ -90,9 +94,9 @@ def _utc_timestamp() -> str:
 def _build_report() -> InventoryReport:
     """Baue komplette InventoryReport via Composition aller collect_X_info().
 
-    Detector-Layer-Helper `collect_apps_info()` liefert weiterhin
-    `list[AppInfo]` — wird hier unter `sites`-Key gebündelt (Section-
-    Output-Konvention, Detector-Naming bleibt für Implementation-Klarheit).
+    v0.0.10: `sites` via `collect_sites_info()` aus sites.py
+    (Werkzeug-First Site-Enumeration + Multi-Source-Detection),
+    NICHT mehr legacy `collect_apps_info()` aus apps/__init__.py.
     """
     return InventoryReport(
         schema_version=_SCHEMA_VERSION,
@@ -102,20 +106,15 @@ def _build_report() -> InventoryReport:
         cc_suite=collect_cc_suite_info(),
         stack=collect_stack_info(),
         databases=collect_databases_info(),
-        sites=collect_apps_info(),
+        sites=collect_sites_info(),
     )
 
 
 def _filter_report(report: InventoryReport, section: Section) -> dict:
-    """Filtere Report auf gewählte Sektion (alle wenn Section.ALL).
-
-    Returns dict statt InventoryReport weil bei Section-Filter die
-    TypedDict-Struktur verändert wird (nur Subkey).
-    """
+    """Filtere Report auf gewählte Sektion (alle wenn Section.ALL)."""
     if section is Section.ALL:
         return dict(report)
 
-    # Schema-Header bleibt immer drin für Kontext, plus die gewählte Sektion
     base = {
         "schema_version": report["schema_version"],
         "timestamp": report["timestamp"],
@@ -187,34 +186,53 @@ def _render_databases(console: Console, dbs: list[DatabaseInfo]) -> None:
     console.print(table)
 
 
-def _render_sites(console: Console, sites: list[AppInfo]) -> None:
-    """Render Sites-Sektion (TYPO3-Site-Layer pro Domain).
+def _render_sites(console: Console, sites: list[SiteEntry]) -> None:
+    """Render Sites-Sektion pro Webroot mit nested Domains (v0.0.10).
 
-    v0.0.9: vormals `_render_apps()` — umbenannt zu Section-Aggregations-
-    Naming. Datenstruktur (`AppInfo` aus Detector-Layer) bleibt unverändert.
+    Multi-Line pro Webroot mit Tree-Zeichen (├─ / └─) für Domain-Liste.
+    DevOps-Vote: Webroot ist Quelle der Wahrheit, Domains+PHP als Attribute.
     """
-    table = Table(title="Sites", show_header=True, header_style="bold cyan")
-    table.add_column("Name")
+    table = Table(title="Sites (per Webroot)", show_header=True, header_style="bold cyan")
+    table.add_column("CMS")
     table.add_column("Version")
-    table.add_column("Path")
+    table.add_column("Webroot + Domains")
+
     if not sites:
         table.add_row("[dim](none)[/dim]", "", "")
+        console.print(table)
+        return
+
     for site in sites:
-        table.add_row(site["name"], site["version"], site["path"])
+        cms_cell = site["cms"] if site["cms"] != "unknown" else "[dim]?[/dim]"
+        version_cell = (
+            site["cms_version"]
+            if site["cms_version"] not in ("unknown", "")
+            else "[dim]?[/dim]"
+        )
+
+        # Build the Webroot+Domains nested cell
+        lines = [site["webroot"]]
+        domain_count = len(site["domains"])
+        for i, domain_info in enumerate(site["domains"]):
+            is_last = i == domain_count - 1
+            tree_char = "└─" if is_last else "├─"
+            lines.append(
+                f"  {tree_char} {domain_info['domain']} (PHP {domain_info['php_version']})"
+            )
+        webroot_cell = "\n".join(lines)
+
+        table.add_row(cms_cell, version_cell, webroot_cell)
+
     console.print(table)
 
 
 def _render_oneliner(report: InventoryReport, section: Section) -> str:
     """Pipe-separated One-Liner, copy-paste-friendly für Chat-Sharing.
 
-    Format: section1:items|section2:items|... mit Items per Section
-    Comma-separated. Header (schema/host/timestamp) immer drin für Kontext.
-
-    Beispiel-Output (alle Sektionen):
-        schema:0.0.2|host:osU2404|timestamp:...|os:Ubuntu-22.04.5-LTS|
-        kernel:5.4.203-1-pve|cc-suite:ccc-0.2.3,cca-0.0.5,cci-0.0.9|
-        stack:py-3.10.12,php-8.4.21|databases:mariadb-10.6.23(active)|
-        sites:typo3-13.4.1@/var/www/site/(composer.json,composer-mode)
+    v0.0.10: sites-Section ist pro Webroot mit comma-separated Domains.
+    Beispiel:
+        sites:typo3-12.4.45@/var/www/preprod.../public[
+            preprod.scheucherparkett.com:7.4,scheucherparkett.at:8.3]
     """
     parts: list[str] = [
         f"schema:{report['schema_version']}",
@@ -259,11 +277,17 @@ def _render_oneliner(report: InventoryReport, section: Section) -> str:
 
     if section in (Section.ALL, Section.SITES):
         if report["sites"]:
-            site_items = [
-                f"{site['name']}-{site['version']}@{site['path']}"
-                f"({site['config_file']},{site['mode']}-mode)"
-                for site in report["sites"]
-            ]
+            site_items = []
+            for site in report["sites"]:
+                cms = site["cms"]
+                version = site["cms_version"]
+                webroot = site["webroot"]
+                domain_strs = [
+                    f"{d['domain']}:{d['php_version']}" for d in site["domains"]
+                ]
+                site_items.append(
+                    f"{cms}-{version}@{webroot}[{','.join(domain_strs)}]"
+                )
             parts.append(f"sites:{','.join(site_items)}")
         else:
             parts.append("sites:(none)")
@@ -274,8 +298,7 @@ def _render_oneliner(report: InventoryReport, section: Section) -> str:
 def _render_text(report: InventoryReport, section: Section) -> str:
     """Plain multi-line Text (kein Rich-Markup) für File-Output + cat.
 
-    Sektional mit [Section]-Headern und key=value-Lines (INI-artig).
-    Geeignet für `cci typo3 --format text --output inv.txt` + `cat inv.txt`.
+    v0.0.10: sites-Section pro Webroot mit nested Domains-Block.
     """
     lines: list[str] = [
         f"# cci inventory — schema {report['schema_version']}",
@@ -320,13 +343,51 @@ def _render_text(report: InventoryReport, section: Section) -> str:
         if not report["sites"]:
             lines.append("  (none)")
         for site in report["sites"]:
-            lines.append(f"  {site['name']} {site['version']}")
-            lines.append(f"    path   = {site['path']}")
-            lines.append(f"    config = {site['config_file']}")
-            lines.append(f"    mode   = {site['mode']}")
+            lines.append(f"  {site['cms']} {site['cms_version']}")
+            lines.append(f"    webroot      = {site['webroot']}")
+            lines.append(f"    project_root = {site['project_root']}")
+            lines.append(f"    cms_mode     = {site['cms_mode']}")
+            if site["cms_source"]:
+                lines.append(f"    cms_source   = {site['cms_source']}")
+            if site["config_file"]:
+                lines.append(f"    config_file  = {site['config_file']}")
+            lines.append(f"    domains      = {len(site['domains'])}")
+            for d in site["domains"]:
+                lines.append(
+                    f"      - {d['domain']} (PHP {d['php_version']})"
+                )
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _box_class_pre_step() -> None:
+    """Box-Klassen-Pre-Step (Sub-Sprint N, v0.0.10).
+
+    Hard-Gate vor Inventur: wenn die Box keine WordOps-LEMP-Ubuntu-LTS-Box
+    ist, schreibe Mismatch-Details nach stderr und beende mit Exit 2.
+
+    Raises:
+        typer.Exit: Code 2 bei Box-Klassen-Mismatch.
+    """
+    result = verify_typo3_box_class()
+    if result.ok:
+        return
+
+    # Klare Mismatch-Meldung auf stderr (Box-Klassen-Pre-Step ist
+    # Sicherheits-Hard-Gate, nicht inhaltliche Inventur).
+    print(
+        "cci typo3: Box-Klassen-Mismatch — diese Box ist keine "
+        "WordOps-LEMP-Ubuntu-LTS-Box.",
+        file=sys.stderr,
+    )
+    for err in result.errors:
+        print(f"  - {err}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Live-Diagnostik:", file=sys.stderr)
+    for key, val in result.diagnostics.items():
+        print(f"  {key} = {val}", file=sys.stderr)
+    raise typer.Exit(code=2)
 
 
 def inventory_command(
@@ -353,7 +414,7 @@ def inventory_command(
 
     Sektionen: os, cc-suite, stack, databases, sites, all (Default).
 
-    Formate (v0.0.8 + v0.0.9):
+    Formate:
 
         rich     — Rich-Tabellen für Mensch (Default)
         json     — AI-Agent-Konsumtion (Indent 2)
@@ -364,11 +425,16 @@ def inventory_command(
 
         cci typo3                                # Komplette Inventur (Rich)
         cci typo3 --format json                  # JSON für AI-Agent
-        cci typo3 --section os                   # Nur OS-Sektion
-        cci typo3 --section sites                # Nur TYPO3-Sites
+        cci typo3 --section sites                # Nur TYPO3-Sites pro Webroot
         cci typo3 --format oneliner              # 1-Zeile copy-paste
         cci typo3 --format text -o /tmp/inv.txt  # In Datei schreiben
+
+    v0.0.10: Pre-Step verifiziert Box-Klasse (Ubuntu LTS + WordOps + nginx-wo).
+    Bei Mismatch: Exit 2 mit klarer Diagnostik auf stderr.
     """
+    # Sub-Sprint N: Box-Klassen-Pre-Step. Bei Mismatch → typer.Exit(2).
+    _box_class_pre_step()
+
     report = _build_report()
     fmt = output_format.lower()
 
@@ -384,8 +450,6 @@ def inventory_command(
 
     # Non-Rich-Formate: String-Builder, dann zu stdout oder file
     if fmt == "json":
-        # JSON-Output: bei Section-Filter nur die gewählte Sektion ausgeben
-        # (statt gesamten Report), für AI-Agent-Konsumtion-Klarheit.
         filtered = _filter_report(report, section)
         content = json.dumps(filtered, indent=2)
     elif fmt == "oneliner":
